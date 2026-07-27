@@ -1,0 +1,7 @@
+package cvt.cv.ppmbackend.exception;
+
+public class ResourceNotFoundException extends RuntimeException {
+    public ResourceNotFoundException(String message) {
+        super(message);
+    }
+}

@@ -1,0 +1,2 @@
+package cvt.cv.ppmbackend.enums;
+public enum ProjectType { STRATEGIC, REGULATORY, OPERATIONAL, TECHNOLOGICAL, COMMERCIAL, INTERNAL_IMPROVEMENT }
