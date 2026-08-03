@@ -1,5 +1,6 @@
 package cvt.cv.ppmbackend.dto;
 
+import cvt.cv.ppmbackend.enums.ScoringImpactType;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -10,5 +11,6 @@ public record ScoringDimensionCreateRequest(
         @NotBlank @Size(max = 30) String code,
         @NotBlank @Size(max = 100) String label,
         @NotNull @DecimalMin(value = "0.0", inclusive = true) BigDecimal weight,
+        ScoringImpactType impactType,
         Boolean active) {
 }

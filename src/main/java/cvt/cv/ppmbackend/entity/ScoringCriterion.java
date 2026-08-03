@@ -30,6 +30,7 @@ public class ScoringCriterion extends BaseEntity {
 
     @ManyToOne(fetch = FetchType.EAGER, optional = false)
     @JoinColumn(name = "dimension_id", nullable = false)
+    @JsonIgnoreProperties("criteria")
     private ScoringDimension dimension;
 
     @Column(name = "min_score", nullable = false, precision = 10, scale = 2)

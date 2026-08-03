@@ -89,7 +89,7 @@ public class Demand extends BaseEntity {
     @Column(columnDefinition = "TEXT")
     private String notes;
     @Column(nullable = false, length = 50)
-    private String status = "RECEIVED";
+    private String status = "IN_ANALYSYS";
     @Column(name = "capacity_status", length = 40)
     private String capacityStatus;
     @Column(name = "risk_status", length = 40)

@@ -44,16 +44,13 @@ public final class DemandScoringDtos {
             String code,
             String label,
             BigDecimal weight,
-            BigDecimal score) {
+            BigDecimal score,
+            List<ScoringItemResponse> items) {
     }
 
     public record DemandScoringResponse(
             UUID demandId,
-            BigDecimal scoreValue,
-            BigDecimal scoreEffort,
-            BigDecimal scoreRisk,
             BigDecimal scoreTotal,
-            List<DimensionScoreResponse> dimensionTotals,
-            List<ScoringItemResponse> items) {
+            List<DimensionScoreResponse> dimensionTotals) {
     }
 }

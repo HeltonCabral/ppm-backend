@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
+import cvt.cv.ppmbackend.dto.DemandScoringDtos.DemandScoringResponse;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -245,7 +246,8 @@ public final class DemandDtos {
                         StrategicObjectiveSummary strategicObjective,
                         ProgramSummary program,
                         ProjectSummary convertedProject,
-                        List<DemandAttachmentResponse> attachments) {
+                        List<DemandAttachmentResponse> attachments,
+                        DemandScoringResponse calculatedScoring) {
         }
 
         public record DemandHistoryResponse(

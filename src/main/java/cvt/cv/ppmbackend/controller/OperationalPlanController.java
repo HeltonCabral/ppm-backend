@@ -31,19 +31,19 @@ public class OperationalPlanController
         return plans.search(null, null, null);
     }
 
-    @GetMapping(params = { "strategicPlanId" })
+    //@GetMapping(params = { "strategicPlanId" })
     public List<OperationalPlan> byStrategicPlan(@RequestParam UUID strategicPlanId,
             @RequestParam(required = false) Integer fiscalYear,
             @RequestParam(required = false) String status) {
         return plans.search(strategicPlanId, fiscalYear, status == null ? null : OperationalPlanStatus.of(status));
     }
 
-    @GetMapping(params = { "fiscalYear" })
+    //@GetMapping(params = { "fiscalYear" })
     public List<OperationalPlan> byFiscalYear(@RequestParam Integer fiscalYear) {
         return plans.search(null, fiscalYear, null);
     }
 
-    @GetMapping(params = { "status" })
+    //@GetMapping(params = { "status" })
     public List<OperationalPlan> byStatus(@RequestParam String status) {
         return plans.search(null, null, OperationalPlanStatus.of(status));
     }

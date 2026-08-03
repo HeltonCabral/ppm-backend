@@ -40,7 +40,7 @@ public class DemandController {
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "createdAt") String sort,
             @RequestParam(required = false) String search,
-            @RequestParam(required = false) String status,
+            @RequestParam(required = false) List<String> status,
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String origin,
             @RequestParam(required = false) String initialPriority,

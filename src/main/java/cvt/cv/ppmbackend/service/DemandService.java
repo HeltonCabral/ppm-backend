@@ -1,6 +1,7 @@
 package cvt.cv.ppmbackend.service;
 
 import cvt.cv.ppmbackend.dto.DemandDtos.*;
+import cvt.cv.ppmbackend.dto.DemandScoringDtos.DemandScoringResponse;
 import cvt.cv.ppmbackend.entity.*;
 import cvt.cv.ppmbackend.enums.ExecutiveStatus;
 import cvt.cv.ppmbackend.enums.Priority;
@@ -26,8 +27,10 @@ import java.util.*;
 public class DemandService {
     private static final Set<String> PRIORITY_CODES = Set.of("LOW", "MEDIUM", "HIGH", "CRITICAL");
     private static final Set<String> EFFORT_CODES = Set.of("XS", "S", "M", "L", "XL");
-    private static final Set<String> STATUS_CODES = Set.of("RECEIVED", "UNDER_ANALYSIS", "UNDER_PRIORITIZATION",
-            "READY_FOR_COMMITTEE", "APPROVED", "REJECTED", "CONVERTED_TO_PROJECT", "ARCHIVED");
+        private static final Set<String> STATUS_CODES = Set.of("IN_ANALYSYS", "IN_PRIORIZATION",
+            "IN_PRIORITIZATION",
+            "PRIORITIZED", "APPROVED", "REJECTED", "CONVERTED_TO_PROJECT", "ARCHIVED",
+            "UNDER_PRIORITIZATION", "READY_FOR_COMMITTEE");
     private static final Set<String> CAPACITY_CODES = Set.of("NOT_ANALYZED", "AVAILABLE", "LIMITED", "UNAVAILABLE");
     private static final Set<String> RISK_CODES = Set.of("NOT_EVALUATED", "LOW", "MEDIUM", "HIGH");
     private static final Set<String> APPROVAL_CODES = Set.of("NORMAL", "CONDITIONAL");
@@ -46,11 +49,13 @@ public class DemandService {
     private final ProgramService programs;
     private final ProjectRepository projects;
     private final LookupValueService lookups;
+    private final DemandScoringService scoringService;
 
     public DemandService(DemandRepository demands, DemandAttachmentRepository attachments, DemandHistoryRepository history,
             DemandCodeService codeService, DemandHistoryService historyService, StrategicPlanService strategicPlans,
             OperationalPlanService operationalPlans, StrategicPillarService pillars, StrategicObjectiveService objectives,
-            ProgramService programs, ProjectRepository projects, LookupValueService lookups) {
+            ProgramService programs, ProjectRepository projects, LookupValueService lookups,
+            DemandScoringService scoringService) {
         this.demands = demands;
         this.attachments = attachments;
         this.history = history;
@@ -63,12 +68,13 @@ public class DemandService {
         this.programs = programs;
         this.projects = projects;
         this.lookups = lookups;
+        this.scoringService = scoringService;
     }
 
     public DemandResponse create(Create req, String actorId) {
         Demand demand = new Demand();
         demand.setCode(codeService.nextCode());
-        demand.setStatus("RECEIVED");
+        demand.setStatus("IN_ANALYSYS");
         demand.setCreatedBy(actor(actorId));
         demand.setUpdatedBy(actor(actorId));
         apply(req, demand, true);
@@ -216,7 +222,7 @@ public class DemandService {
     }
 
     @Transactional
-    public PagedDemandsResponse list(int page, int size, String sort, String search, String status, String type,
+    public PagedDemandsResponse list(int page, int size, String sort, String search, List<String> status, String type,
             String origin, String initialPriority, String urgency, UUID strategicPlanId, UUID operationalPlanId,
             UUID strategicPillarId, UUID strategicObjectiveId, UUID programId, String requester, String businessArea,
             LocalDate createdFrom, LocalDate createdTo) {
@@ -232,8 +238,17 @@ public class DemandService {
                     cb.like(cb.lower(root.get("area")), like),
                     cb.like(cb.lower(root.get("easyVistaRef")), like)));
         }
-        if (status != null)
-            spec = spec.and((r, q, cb) -> cb.equal(r.get("status"), norm(status)));
+        if (status != null && !status.isEmpty()) {
+            Set<String> normalizedStatuses = status.stream()
+                    .filter(Objects::nonNull)
+                    .map(String::trim)
+                    .filter(s -> !s.isBlank())
+                    .map(this::norm)
+                    .collect(java.util.stream.Collectors.toSet());
+            if (!normalizedStatuses.isEmpty()) {
+                spec = spec.and((r, q, cb) -> r.get("status").in(normalizedStatuses));
+            }
+        }
         if (type != null)
             spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("type").get("code")), norm(type)));
         if (origin != null)
@@ -339,7 +354,7 @@ public class DemandService {
         d.setRejectionReason(req.rejectionReason());
 
         if (creating)
-            d.setStatus("RECEIVED");
+            d.setStatus("IN_ANALYSYS");
 
         validateBusinessRules(d);
     }
@@ -394,13 +409,14 @@ public class DemandService {
         if (Objects.equals(from, to))
             return;
         Map<String, Set<String>> next = new HashMap<>();
-        next.put("RECEIVED", Set.of("UNDER_ANALYSIS","UNDER_PRIORITIZATION", "ARCHIVED"));
-        next.put("UNDER_ANALYSIS", Set.of("UNDER_PRIORITIZATION", "REJECTED", "ARCHIVED", "RECEIVED"));
-        next.put("UNDER_PRIORITIZATION", Set.of("READY_FOR_COMMITTEE", "REJECTED", "ARCHIVED", "UNDER_ANALYSIS"));
+        next.put("IN_ANALYSYS", Set.of("IN_PRIORIZATION", "REJECTED", "ARCHIVED"));
+        next.put("IN_PRIORIZATION", Set.of("PRIORITIZED", "REJECTED", "ARCHIVED", "IN_ANALYSYS"));
+        next.put("PRIORITIZED", Set.of("APPROVED", "REJECTED", "IN_ANALYSYS", "IN_PRIORIZATION", "ARCHIVED"));
+        next.put("UNDER_PRIORITIZATION", Set.of("PRIORITIZED", "READY_FOR_COMMITTEE", "REJECTED", "ARCHIVED", "IN_ANALYSYS"));
         next.put("READY_FOR_COMMITTEE",
-                Set.of("APPROVED", "REJECTED", "UNDER_ANALYSIS", "UNDER_PRIORITIZATION", "ARCHIVED"));
-        next.put("APPROVED", Set.of("CONVERTED_TO_PROJECT", "ARCHIVED", "UNDER_ANALYSIS"));
-        next.put("REJECTED", Set.of("UNDER_ANALYSIS", "ARCHIVED"));
+            Set.of("APPROVED", "REJECTED", "IN_ANALYSYS", "IN_PRIORIZATION", "UNDER_PRIORITIZATION", "ARCHIVED"));
+        next.put("APPROVED", Set.of("CONVERTED_TO_PROJECT", "ARCHIVED", "IN_ANALYSYS"));
+        next.put("REJECTED", Set.of("IN_ANALYSYS", "ARCHIVED"));
         next.put("CONVERTED_TO_PROJECT", Set.of("ARCHIVED"));
         next.put("ARCHIVED", Set.of());
 
@@ -417,7 +433,7 @@ public class DemandService {
 
     private String eventTypeForTransition(String to) {
         return switch (to) {
-            case "READY_FOR_COMMITTEE" -> "SUBMITTED_TO_COMMITTEE";
+            case "PRIORITIZED", "READY_FOR_COMMITTEE" -> "SUBMITTED_TO_COMMITTEE";
             case "APPROVED" -> "APPROVED";
             case "REJECTED" -> "REJECTED";
             default -> "STATUS_CHANGED";
@@ -444,6 +460,7 @@ public class DemandService {
         StrategicObjectiveSummary strategicObjective = mapStrategicObjective(d.getStrategicObjective());
         ProgramSummary program = mapProgram(d.getProgram());
         ProjectSummary convertedProject = mapProject(d.getConvertedProject());
+        DemandScoringResponse calculatedScoring = scoringService.getByDemand(d.getId());
         return new DemandResponse(d.getId(), d.getCode(), d.getTitle(), d.getDescription(), d.getRequester(), d.getArea(),
                 d.getDirection(), d.getSponsor(), d.getTypeId(), typeCode, d.getOrigin(), d.getEasyVistaRef(),
                 d.getStrategicPlanId(),
@@ -456,7 +473,7 @@ public class DemandService {
                 d.getPortfolioRank(), d.getApprovalType(), d.getCommitteeDecision(), d.getRejectionReason(),
                 d.getConvertedProjectId(), d.getCreatedAt(), d.getCreatedBy(), d.getUpdatedAt(), d.getUpdatedBy(),
                 d.getVersion(), typeData, domainData, strategicPlan, operationalPlan, strategicPillar,
-                strategicObjective, program, convertedProject, att);
+                strategicObjective, program, convertedProject, att, calculatedScoring);
     }
 
     private LookupValueSummary mapLookupValue(LookupValue value) {
@@ -573,7 +590,14 @@ public class DemandService {
     }
 
     private String norm(String value) {
-        return value == null ? null : value.trim().toUpperCase(Locale.ROOT);
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
+        if ("IN_PRIORITIZATION".equals(normalized)) {
+            return "IN_PRIORIZATION";
+        }
+        return normalized;
     }
 
     private String actor(String value) {

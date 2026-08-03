@@ -2,6 +2,7 @@ package cvt.cv.ppmbackend.service;
 
 import cvt.cv.ppmbackend.dto.ScoringDimensionCreateRequest;
 import cvt.cv.ppmbackend.entity.ScoringDimension;
+import cvt.cv.ppmbackend.enums.ScoringImpactType;
 import cvt.cv.ppmbackend.exception.BadRequestException;
 import cvt.cv.ppmbackend.repository.ScoringDimensionRepository;
 import org.springframework.stereotype.Service;
@@ -43,8 +44,15 @@ public class ScoringDimensionService extends AbstractCrudService<ScoringDimensio
         entity.setCode(code);
         entity.setLabel(request.label());
         entity.setWeight(request.weight());
+        entity.setImpactType(request.impactType() == null ? ScoringImpactType.BENEFIT : request.impactType());
         entity.setActive(request.active() == null ? Boolean.TRUE : request.active());
         return entity;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ScoringDimension> findAll() {
+        return dimensions.findAllWithCriteriaOrderByCodeAsc();
     }
 
     @Transactional(readOnly = true)
