@@ -25,9 +25,10 @@ import java.util.*;
 @Service
 @Transactional
 public class DemandService {
+    private static final String STATUS_IN_ANALYSIS = "IN_ANALYSIS";
     private static final Set<String> PRIORITY_CODES = Set.of("LOW", "MEDIUM", "HIGH", "CRITICAL");
     private static final Set<String> EFFORT_CODES = Set.of("XS", "S", "M", "L", "XL");
-        private static final Set<String> STATUS_CODES = Set.of("IN_ANALYSYS", "IN_PRIORIZATION",
+        private static final Set<String> STATUS_CODES = Set.of(STATUS_IN_ANALYSIS, "IN_PRIORIZATION",
             "IN_PRIORITIZATION",
             "PRIORITIZED", "APPROVED", "REJECTED", "CONVERTED_TO_PROJECT", "ARCHIVED",
             "UNDER_PRIORITIZATION", "READY_FOR_COMMITTEE");
@@ -74,7 +75,7 @@ public class DemandService {
     public DemandResponse create(Create req, String actorId) {
         Demand demand = new Demand();
         demand.setCode(codeService.nextCode());
-        demand.setStatus("IN_ANALYSYS");
+        demand.setStatus(STATUS_IN_ANALYSIS);
         demand.setCreatedBy(actor(actorId));
         demand.setUpdatedBy(actor(actorId));
         apply(req, demand, true);
@@ -125,7 +126,7 @@ public class DemandService {
     @Transactional
     public DemandResponse changeStatus(UUID id, StatusPatch req, String actorId) {
         Demand d = entity(id);
-        String from = d.getStatus();
+        String from = norm(d.getStatus());
         String to = norm(req.status());
         validateStatusValue(to);
         validateTransition(from, to, req.reason());
@@ -344,9 +345,7 @@ public class DemandService {
         d.setRiskStatus(req.riskStatus() == null ? "NOT_EVALUATED" : norm(req.riskStatus()));
         d.setRisksIdentified(req.risksIdentified());
         d.setDependenciesIdentified(req.dependenciesIdentified());
-        d.setScoreValue(req.scoreValue());
-        d.setScoreEffort(req.scoreEffort());
-        d.setScoreRisk(req.scoreRisk());
+       
         d.setScoreTotal(req.scoreTotal());
         d.setPortfolioRank(req.portfolioRank());
         d.setApprovalType(req.approvalType() == null ? null : norm(req.approvalType()));
@@ -354,7 +353,7 @@ public class DemandService {
         d.setRejectionReason(req.rejectionReason());
 
         if (creating)
-            d.setStatus("IN_ANALYSYS");
+            d.setStatus(STATUS_IN_ANALYSIS);
 
         validateBusinessRules(d);
     }
@@ -409,14 +408,14 @@ public class DemandService {
         if (Objects.equals(from, to))
             return;
         Map<String, Set<String>> next = new HashMap<>();
-        next.put("IN_ANALYSYS", Set.of("IN_PRIORIZATION", "REJECTED", "ARCHIVED"));
-        next.put("IN_PRIORIZATION", Set.of("PRIORITIZED", "REJECTED", "ARCHIVED", "IN_ANALYSYS"));
-        next.put("PRIORITIZED", Set.of("APPROVED", "REJECTED", "IN_ANALYSYS", "IN_PRIORIZATION", "ARCHIVED"));
-        next.put("UNDER_PRIORITIZATION", Set.of("PRIORITIZED", "READY_FOR_COMMITTEE", "REJECTED", "ARCHIVED", "IN_ANALYSYS"));
+        next.put(STATUS_IN_ANALYSIS, Set.of("IN_PRIORIZATION", "REJECTED", "ARCHIVED"));
+        next.put("IN_PRIORIZATION", Set.of("PRIORITIZED", "REJECTED", "ARCHIVED", STATUS_IN_ANALYSIS));
+        next.put("PRIORITIZED", Set.of("APPROVED", "REJECTED", STATUS_IN_ANALYSIS, "IN_PRIORIZATION", "ARCHIVED"));
+        next.put("UNDER_PRIORITIZATION", Set.of("PRIORITIZED", "READY_FOR_COMMITTEE", "REJECTED", "ARCHIVED", STATUS_IN_ANALYSIS));
         next.put("READY_FOR_COMMITTEE",
-            Set.of("APPROVED", "REJECTED", "IN_ANALYSYS", "IN_PRIORIZATION", "UNDER_PRIORITIZATION", "ARCHIVED"));
-        next.put("APPROVED", Set.of("CONVERTED_TO_PROJECT", "ARCHIVED", "IN_ANALYSYS"));
-        next.put("REJECTED", Set.of("IN_ANALYSYS", "ARCHIVED"));
+            Set.of("APPROVED", "REJECTED", STATUS_IN_ANALYSIS, "IN_PRIORIZATION", "UNDER_PRIORITIZATION", "ARCHIVED"));
+        next.put("APPROVED", Set.of("CONVERTED_TO_PROJECT", "ARCHIVED", STATUS_IN_ANALYSIS));
+        next.put("REJECTED", Set.of(STATUS_IN_ANALYSIS, "ARCHIVED"));
         next.put("CONVERTED_TO_PROJECT", Set.of("ARCHIVED"));
         next.put("ARCHIVED", Set.of());
 
@@ -468,8 +467,8 @@ public class DemandService {
                 d.getDomainId(), domainCode, d.getImpactedSystem(), d.getInitialPriority(), d.getEstimatedEffort(),
                 d.getExpectedImpact(),
                 d.getExpectedBenefit(), d.getUrgency(), d.getEstimatedBudget(), d.getDesiredDate(), d.getNotes(),
-                d.getStatus(), d.getCapacityStatus(), d.getRiskStatus(), d.getRisksIdentified(),
-                d.getDependenciesIdentified(), d.getScoreValue(), d.getScoreEffort(), d.getScoreRisk(), d.getScoreTotal(),
+                norm(d.getStatus()), d.getCapacityStatus(), d.getRiskStatus(), d.getRisksIdentified(),
+                d.getDependenciesIdentified(), d.getScoreTotal(),
                 d.getPortfolioRank(), d.getApprovalType(), d.getCommitteeDecision(), d.getRejectionReason(),
                 d.getConvertedProjectId(), d.getCreatedAt(), d.getCreatedBy(), d.getUpdatedAt(), d.getUpdatedBy(),
                 d.getVersion(), typeData, domainData, strategicPlan, operationalPlan, strategicPillar,
@@ -552,9 +551,6 @@ public class DemandService {
                 p.riskStatus() != null ? p.riskStatus() : d.getRiskStatus(),
                 p.risksIdentified() != null ? p.risksIdentified() : d.getRisksIdentified(),
                 p.dependenciesIdentified() != null ? p.dependenciesIdentified() : d.getDependenciesIdentified(),
-                p.scoreValue() != null ? p.scoreValue() : d.getScoreValue(),
-                p.scoreEffort() != null ? p.scoreEffort() : d.getScoreEffort(),
-                p.scoreRisk() != null ? p.scoreRisk() : d.getScoreRisk(),
                 p.scoreTotal() != null ? p.scoreTotal() : d.getScoreTotal(),
                 p.portfolioRank() != null ? p.portfolioRank() : d.getPortfolioRank(),
                 p.approvalType() != null ? p.approvalType() : d.getApprovalType(),
@@ -569,7 +565,7 @@ public class DemandService {
             u.strategicObjectiveId(), u.programId(), u.domainId(), u.impactedSystem(), u.initialPriority(),
                 u.estimatedEffort(), u.expectedImpact(), u.expectedBenefit(), u.urgency(), u.estimatedBudget(),
                 u.desiredDate(), u.notes(), u.capacityStatus(), u.riskStatus(), u.risksIdentified(),
-                u.dependenciesIdentified(), u.scoreValue(), u.scoreEffort(), u.scoreRisk(), u.scoreTotal(),
+                u.dependenciesIdentified(), u.scoreTotal(),
                 u.portfolioRank(), u.approvalType(), u.committeeDecision(), u.rejectionReason(), null);
     }
 
@@ -594,6 +590,9 @@ public class DemandService {
             return null;
         }
         String normalized = value.trim().toUpperCase(Locale.ROOT);
+        if ("IN_ANALYSYS".equals(normalized)) {
+            return STATUS_IN_ANALYSIS;
+        }
         if ("IN_PRIORITIZATION".equals(normalized)) {
             return "IN_PRIORIZATION";
         }

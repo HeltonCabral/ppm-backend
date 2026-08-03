@@ -89,7 +89,7 @@ public class Demand extends BaseEntity {
     @Column(columnDefinition = "TEXT")
     private String notes;
     @Column(nullable = false, length = 50)
-    private String status = "IN_ANALYSYS";
+    private String status = "IN_ANALYSIS";
     @Column(name = "capacity_status", length = 40)
     private String capacityStatus;
     @Column(name = "risk_status", length = 40)
@@ -98,12 +98,6 @@ public class Demand extends BaseEntity {
     private String risksIdentified;
     @Column(name = "dependencies_identified", columnDefinition = "TEXT")
     private String dependenciesIdentified;
-    @Column(name = "score_value", precision = 19, scale = 2)
-    private BigDecimal scoreValue;
-    @Column(name = "score_effort", precision = 19, scale = 2)
-    private BigDecimal scoreEffort;
-    @Column(name = "score_risk", precision = 19, scale = 2)
-    private BigDecimal scoreRisk;
     @Column(name = "score_total", precision = 19, scale = 2)
     private BigDecimal scoreTotal;
     @Column(name = "portfolio_rank")

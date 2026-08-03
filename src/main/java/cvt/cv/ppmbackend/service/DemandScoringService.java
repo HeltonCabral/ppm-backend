@@ -30,13 +30,13 @@ import java.util.UUID;
 public class DemandScoringService {
     private static final BigDecimal ZERO = BigDecimal.ZERO;
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
-    private static final String STATUS_IN_ANALYSYS = "IN_ANALYSYS";
+    private static final String STATUS_IN_ANALYSIS = "IN_ANALYSIS";
         private static final String STATUS_IN_PRIORIZATION = "IN_PRIORIZATION";
         private static final String STATUS_PRIORITIZED = "PRIORITIZED";
         private static final String STATUS_UNDER_PRIORITIZATION = "UNDER_PRIORITIZATION";
         private static final String STATUS_READY_FOR_COMMITTEE = "READY_FOR_COMMITTEE";
     private static final Set<String> AUTO_STATUS_SCOPE = Set.of(
-            STATUS_IN_ANALYSYS,
+            STATUS_IN_ANALYSIS,
             STATUS_IN_PRIORIZATION,
             STATUS_PRIORITIZED,
             STATUS_UNDER_PRIORITIZATION,
@@ -94,6 +94,12 @@ public class DemandScoringService {
 
     private List<DemandScoring> recalculateDemandTotals(Demand demand) {
         List<DemandScoring> items = scoring.findByDemandIdOrderByCriterionOrderIndexAsc(demand.getId());
+        if (items.isEmpty()) {
+            demand.setScoreTotal(null);
+            demand.setPortfolioRank(null);
+            return items;
+        }
+
         Map<String, BigDecimal> totalsByCode = new LinkedHashMap<>();
         Map<UUID, List<DemandScoring>> itemsByDimension = new LinkedHashMap<>();
         Map<UUID, BigDecimal> rawWeightByDimension = new LinkedHashMap<>();
@@ -180,10 +186,12 @@ public class DemandScoringService {
             total = ONE_HUNDRED;
         }
 
-        demand.setScoreValue(totalsByCode.getOrDefault("VALUE", ZERO).setScale(2, RoundingMode.HALF_UP));
-        demand.setScoreEffort(totalsByCode.getOrDefault("EFFORT", ZERO).setScale(2, RoundingMode.HALF_UP));
-        demand.setScoreRisk(totalsByCode.getOrDefault("RISK", ZERO).setScale(2, RoundingMode.HALF_UP));
-        demand.setScoreTotal(total);
+        final BigDecimal finalTotal = total;
+        demand.setScoreTotal(finalTotal);
+        long higherScores = demands.count((root, query, cb) -> cb.and(
+            cb.isNull(root.get("deletedAt")),
+            cb.greaterThan(root.get("scoreTotal"), finalTotal)));
+        demand.setPortfolioRank((int) higherScores + 1);
         return items;
     }
 
@@ -231,14 +239,21 @@ public class DemandScoringService {
             return;
         }
 
-        if (STATUS_IN_ANALYSYS.equals(currentStatus)) {
+        if (STATUS_IN_ANALYSIS.equals(currentStatus)) {
             demand.setStatus(STATUS_IN_PRIORIZATION);
             demand.setUpdatedBy(actor);
         }
     }
 
     private String normalizeStatus(String status) {
-        return status == null ? "" : status.trim().toUpperCase(Locale.ROOT);
+        if (status == null) {
+            return "";
+        }
+        String normalized = status.trim().toUpperCase(Locale.ROOT);
+        if ("IN_ANALYSYS".equals(normalized)) {
+            return STATUS_IN_ANALYSIS;
+        }
+        return normalized;
     }
 
     private DemandScoringResponse mapResponse(Demand demand, List<DemandScoring> items) {
