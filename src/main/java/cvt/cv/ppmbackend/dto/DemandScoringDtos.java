@@ -1,5 +1,6 @@
 package cvt.cv.ppmbackend.dto;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -51,6 +52,11 @@ public final class DemandScoringDtos {
     public record DemandScoringResponse(
             UUID demandId,
             BigDecimal scoreTotal,
+            String scoreStatus,
+            Instant scoreCalculatedAt,
+            Instant scoreInvalidatedAt,
+            String scoreInvalidationReason,
+            JsonNode previousScoreSnapshot,
             List<DimensionScoreResponse> dimensionTotals) {
     }
 }

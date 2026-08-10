@@ -3,6 +3,7 @@ package cvt.cv.ppmbackend.controller;
 import cvt.cv.ppmbackend.dto.DemandDtos.*;
 import cvt.cv.ppmbackend.dto.DemandScoringDtos.DemandScoringResponse;
 import cvt.cv.ppmbackend.dto.DemandScoringDtos.UpsertRequest;
+import cvt.cv.ppmbackend.dto.CommitteeSuggestionResponse;
 import cvt.cv.ppmbackend.service.DemandScoringService;
 import cvt.cv.ppmbackend.service.DemandService;
 import jakarta.validation.Valid;
@@ -59,9 +60,38 @@ public class DemandController {
                 requester, businessArea, createdFrom, createdTo);
     }
 
+    @GetMapping("/portfolio-ranking")
+    public PagedDemandsResponse listPortfolioRanked(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String direction,
+            @RequestParam(required = false) String area) {
+        return demands.listPortfolioRanked(page, size, direction, area);
+    }
+
     @GetMapping("/{id}")
     public DemandResponse get(@PathVariable UUID id) {
         return demands.get(id);
+    }
+
+    @GetMapping("/{id}/committee-suggestion")
+    public CommitteeSuggestionResponse committeeSuggestion(@PathVariable UUID id) {
+        return demands.committeeSuggestion(id);
+    }
+
+    @PostMapping("/{id}/apply-committee-suggestion")
+    public CommitteeSuggestionResponse applyCommitteeSuggestion(
+            @PathVariable UUID id,
+            @RequestHeader(value = "X-User-Id", required = false) String user) {
+        return demands.applyCommitteeSuggestion(id, actor(user));
+    }
+
+    @PostMapping("/{id}/confirm-committee")
+    public DemandResponse confirmCommittee(
+            @PathVariable UUID id,
+            @Valid @RequestBody ConfirmCommitteeRequest request,
+            @RequestHeader(value = "X-User-Id", required = false) String user) {
+        return demands.confirmCommittee(id, request, actor(user));
     }
 
     @PutMapping("/{id}")

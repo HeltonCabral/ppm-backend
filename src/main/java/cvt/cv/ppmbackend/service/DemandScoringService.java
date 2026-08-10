@@ -13,11 +13,14 @@ import cvt.cv.ppmbackend.exception.BadRequestException;
 import cvt.cv.ppmbackend.exception.ResourceNotFoundException;
 import cvt.cv.ppmbackend.repository.DemandRepository;
 import cvt.cv.ppmbackend.repository.DemandScoringRepository;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -44,24 +47,33 @@ public class DemandScoringService {
     private final DemandRepository demands;
     private final DemandScoringRepository scoring;
     private final ScoringCriterionService criteria;
+    private final DemandScoreLifecycleService scoreLifecycle;
 
     public DemandScoringService(DemandRepository demands, DemandScoringRepository scoring,
-            ScoringCriterionService criteria) {
+            ScoringCriterionService criteria, DemandScoreLifecycleService scoreLifecycle) {
         this.demands = demands;
         this.scoring = scoring;
         this.criteria = criteria;
+        this.scoreLifecycle = scoreLifecycle;
     }
 
     public DemandScoringResponse getByDemand(UUID demandId) {
         Demand demand = demand(demandId);
-        List<DemandScoring> recalculatedItems = recalculateDemandTotals(demand);
-        demands.save(demand);
-        return mapResponse(demand, recalculatedItems);
+        List<DemandScoring> items = scoring.findByDemandIdOrderByCriterionOrderIndexAsc(demand.getId());
+        return mapResponse(demand, items);
     }
 
     public DemandScoringResponse upsert(UUID demandId, UpsertRequest request, String actorId) {
         Demand demand = demand(demandId);
+        scoreLifecycle.validateCanScore(demand);
         String actor = actorId == null || actorId.isBlank() ? "system" : actorId;
+        boolean fullReplacement = scoreLifecycle.requiresFullReplacement(demand);
+        if (fullReplacement) {
+            validateCompleteRecalculation(request);
+            List<DemandScoring> previousItems = scoring.findByDemandIdOrderByCriterionOrderIndexAsc(demandId);
+            scoring.deleteAll(previousItems);
+            scoring.flush();
+        }
 
         for (var item : request.items()) {
             ScoringCriterion criterion = criteria.requireActive(item.criterionId());
@@ -81,10 +93,28 @@ public class DemandScoringService {
         }
 
         List<DemandScoring> recalculatedItems = recalculateDemandTotals(demand);
+        scoreLifecycle.markCalculated(demand);
         updateStatusAfterScoring(demand, recalculatedItems, actor);
         demands.save(demand);
 
         return mapResponse(demand, recalculatedItems);
+    }
+
+    private void validateCompleteRecalculation(UpsertRequest request) {
+        Set<UUID> activeCriteriaIds = criteria.findActive().stream()
+                .map(ScoringCriterion::getId)
+                .collect(java.util.stream.Collectors.toSet());
+        Set<UUID> requestedCriteriaIds = request.items().stream()
+                .map(item -> item.criterionId())
+                .collect(java.util.stream.Collectors.toSet());
+        boolean hasDuplicates = requestedCriteriaIds.size() != request.items().size();
+        if (hasDuplicates || !requestedCriteriaIds.equals(activeCriteriaIds)) {
+            Set<UUID> missingCriteriaIds = new HashSet<>(activeCriteriaIds);
+            missingCriteriaIds.removeAll(requestedCriteriaIds);
+            throw new BadRequestException(
+                    "O recálculo de um score invalidado deve substituir todos os critérios ativos. "
+                            + "Critérios em falta: " + missingCriteriaIds);
+        }
     }
 
     private Demand demand(UUID id) {
@@ -97,6 +127,8 @@ public class DemandScoringService {
         if (items.isEmpty()) {
             demand.setScoreTotal(null);
             demand.setPortfolioRank(null);
+            demand.setDirectionRank(null);
+            recomputeRanks();
             return items;
         }
 
@@ -186,13 +218,62 @@ public class DemandScoringService {
             total = ONE_HUNDRED;
         }
 
-        final BigDecimal finalTotal = total;
-        demand.setScoreTotal(finalTotal);
-        long higherScores = demands.count((root, query, cb) -> cb.and(
-            cb.isNull(root.get("deletedAt")),
-            cb.greaterThan(root.get("scoreTotal"), finalTotal)));
-        demand.setPortfolioRank((int) higherScores + 1);
+        demand.setScoreTotal(total);
+        recomputeRanks();
         return items;
+    }
+
+    public void recomputeRanks() {
+        Specification<Demand> scoredSpec = (root, query, cb) -> cb.and(
+                cb.isNull(root.get("deletedAt")),
+                cb.isNotNull(root.get("scoreTotal")));
+
+        List<Demand> rankedDemands = demands.findAll(scoredSpec, Sort.by(
+                Sort.Order.desc("scoreTotal"),
+                Sort.Order.asc("createdAt"),
+                Sort.Order.asc("id")));
+
+        assignRanks(rankedDemands);
+
+        if (!rankedDemands.isEmpty()) {
+            demands.saveAll(rankedDemands);
+        }
+
+        Specification<Demand> noScoreWithRankSpec = (root, query, cb) -> cb.and(
+                cb.isNull(root.get("deletedAt")),
+                cb.isNull(root.get("scoreTotal")),
+                cb.or(
+                        cb.isNotNull(root.get("portfolioRank")),
+                        cb.isNotNull(root.get("directionRank"))));
+
+        List<Demand> noScoreDemands = demands.findAll(noScoreWithRankSpec);
+        for (Demand noScoreDemand : noScoreDemands) {
+            noScoreDemand.setPortfolioRank(null);
+            noScoreDemand.setDirectionRank(null);
+        }
+        if (!noScoreDemands.isEmpty()) {
+            demands.saveAll(noScoreDemands);
+        }
+    }
+
+    void assignRanks(List<Demand> rankedDemands) {
+        Map<String, Integer> nextRankByDirection = new HashMap<>();
+        int portfolioRank = 1;
+
+        for (Demand rankedDemand : rankedDemands) {
+            rankedDemand.setPortfolioRank(portfolioRank++);
+            String directionKey = normalizeDirection(rankedDemand.getDirection());
+            rankedDemand.setDirectionRank(directionKey == null
+                    ? null
+                    : nextRankByDirection.merge(directionKey, 1, Integer::sum));
+        }
+    }
+
+    private String normalizeDirection(String direction) {
+        if (direction == null || direction.isBlank()) {
+            return null;
+        }
+        return direction.trim().toUpperCase(Locale.ROOT);
     }
 
     private BigDecimal normalizedScore(ScoringCriterion criterion, BigDecimal score) {
@@ -322,6 +403,11 @@ public class DemandScoringService {
         return new DemandScoringResponse(
             demand.getId(),
             demand.getScoreTotal(),
+            demand.getScoreStatus(),
+            demand.getScoreCalculatedAt(),
+            demand.getScoreInvalidatedAt(),
+            demand.getScoreInvalidationReason(),
+            scoreLifecycle.previousScoreSnapshot(demand),
             dimensionTotals);
     }
 }

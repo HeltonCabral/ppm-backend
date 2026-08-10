@@ -42,6 +42,8 @@ public class Project extends BaseEntity {
     private String responsibleTeam;
     @Column(nullable = false, length = 120)
     private String projectManager;
+    @Column(name = "project_manager_id")
+    private UUID projectManagerId;
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private ProjectStatus status;

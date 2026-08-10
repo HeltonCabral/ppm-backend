@@ -8,6 +8,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.UpdateTimestamp;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -19,7 +20,9 @@ import java.util.UUID;
         @Index(name = "idx_demands_code", columnList = "code", unique = true),
         @Index(name = "idx_demands_status", columnList = "status"),
         @Index(name = "idx_demands_origin", columnList = "origin"),
-        @Index(name = "idx_demands_created_at", columnList = "created_at")
+        @Index(name = "idx_demands_created_at", columnList = "created_at"),
+        @Index(name = "idx_demands_suggested_committee_id", columnList = "suggested_committee_id"),
+        @Index(name = "idx_demands_responsible_committee_id", columnList = "responsible_committee_id")
 })
 @Getter
 @Setter
@@ -67,6 +70,16 @@ public class Demand extends BaseEntity {
     @JoinColumn(name = "program_id")
     @JsonIgnore
     private Program program;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "suggested_committee_id")
+    @JsonIgnore
+    private Committee suggestedCommittee;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "responsible_committee_id")
+    @JsonIgnore
+    private Committee responsibleCommittee;
+    @Column(name = "committee_change_justification", length = 4000)
+    private String committeeChangeJustification;
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "domain_id")
     private LookupValue domain;
@@ -100,8 +113,21 @@ public class Demand extends BaseEntity {
     private String dependenciesIdentified;
     @Column(name = "score_total", precision = 19, scale = 2)
     private BigDecimal scoreTotal;
+    @Column(name = "score_status", nullable = false, length = 30)
+    @ColumnDefault("'Não Calculado'")
+    private String scoreStatus = "Não Calculado";
+    @Column(name = "score_calculated_at")
+    private Instant scoreCalculatedAt;
+    @Column(name = "score_invalidated_at")
+    private Instant scoreInvalidatedAt;
+    @Column(name = "score_invalidation_reason", columnDefinition = "TEXT")
+    private String scoreInvalidationReason;
+    @Column(name = "previous_score_snapshot", columnDefinition = "TEXT")
+    private String previousScoreSnapshot;
     @Column(name = "portfolio_rank")
     private Integer portfolioRank;
+    @Column(name = "direction_rank")
+    private Integer directionRank;
     @Column(name = "approval_type", length = 40)
     private String approvalType;
     @Column(name = "committee_decision", length = 60)
@@ -150,6 +176,21 @@ public class Demand extends BaseEntity {
     @JsonProperty("programId")
     public UUID getProgramId() {
         return program != null ? program.getId() : null;
+    }
+
+    @JsonProperty("committeeId")
+    public UUID getCommitteeId() {
+        return getResponsibleCommitteeId();
+    }
+
+    @JsonProperty("suggestedCommitteeId")
+    public UUID getSuggestedCommitteeId() {
+        return suggestedCommittee != null ? suggestedCommittee.getId() : null;
+    }
+
+    @JsonProperty("responsibleCommitteeId")
+    public UUID getResponsibleCommitteeId() {
+        return responsibleCommittee != null ? responsibleCommittee.getId() : null;
     }
 
     @JsonProperty("typeId")

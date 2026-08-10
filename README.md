@@ -33,6 +33,7 @@ A API fica em `http://localhost:8080/api`. O Swagger UI fica em
 - `/benefits`
 - `/project-scorings`
 - `/capacity-allocations`
+- `/committees`
 
 Todos possuem `GET`, `GET /{id}`, `POST`, `PUT /{id}` e `DELETE /{id}`. Os filtros e operações especiais descritos no contrato também estão documentados no Swagger.
 
