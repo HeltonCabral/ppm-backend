@@ -4,6 +4,7 @@ import cvt.cv.ppmbackend.dto.DemandDtos.*;
 import cvt.cv.ppmbackend.dto.DemandScoringDtos.DemandScoringResponse;
 import cvt.cv.ppmbackend.dto.DemandScoringDtos.UpsertRequest;
 import cvt.cv.ppmbackend.dto.CommitteeSuggestionResponse;
+import cvt.cv.ppmbackend.dto.PreScoreResponse;
 import cvt.cv.ppmbackend.service.DemandScoringService;
 import cvt.cv.ppmbackend.service.DemandService;
 import jakarta.validation.Valid;
@@ -69,6 +70,8 @@ public class DemandController {
         return demands.listPortfolioRanked(page, size, direction, area);
     }
 
+    
+
     @GetMapping("/{id}")
     public DemandResponse get(@PathVariable UUID id) {
         return demands.get(id);
@@ -79,19 +82,33 @@ public class DemandController {
         return demands.committeeSuggestion(id);
     }
 
-    @PostMapping("/{id}/apply-committee-suggestion")
-    public CommitteeSuggestionResponse applyCommitteeSuggestion(
-            @PathVariable UUID id,
-            @RequestHeader(value = "X-User-Id", required = false) String user) {
-        return demands.applyCommitteeSuggestion(id, actor(user));
+    @GetMapping("/in-priorization/by-username")
+    public List<DemandResponse> listInPriorizationByUsername(@RequestParam String username) {
+        return demands.listInPriorizationByUsername(username);
     }
 
-    @PostMapping("/{id}/confirm-committee")
-    public DemandResponse confirmCommittee(
+    @PatchMapping("/{id}/assign-committee")
+    public DemandResponse assignCommittee(
             @PathVariable UUID id,
-            @Valid @RequestBody ConfirmCommitteeRequest request,
+            @Valid @RequestBody AssignCommitteeRequest request,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
-        return demands.confirmCommittee(id, request, actor(user));
+        return demands.assignCommittee(id, request, actor(user));
+    }
+
+    @PostMapping("/{id}/send-to-strategic-committee")
+    public DemandResponse sendToStrategicCommittee(
+            @PathVariable UUID id,
+            @RequestBody(required = false) SendToStrategicCommitteeRequest request,
+            @RequestHeader(value = "X-User-Id", required = false) String user) {
+        String reason = request != null ? request.reason() : null;
+        return demands.sendToStrategicCommittee(id, reason, actor(user));
+    }
+
+    @PostMapping("/send-to-strategic-committee/bulk")
+    public List<DemandResponse> sendToStrategicCommitteeBulk(
+            @Valid @RequestBody SendToStrategicCommitteeBulkRequest request,
+            @RequestHeader(value = "X-User-Id", required = false) String user) {
+        return demands.sendToStrategicCommitteeBulk(request.demandIds(), request.reason(), actor(user));
     }
 
     @PutMapping("/{id}")
@@ -152,5 +169,11 @@ public class DemandController {
     public DemandScoringResponse upsertScoring(@PathVariable UUID id, @Valid @RequestBody UpsertRequest req,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
         return scoring.upsert(id, req, actor(user));
+    }
+
+    @PostMapping("/{id}/calculate-pre-score")
+    public PreScoreResponse calculatePreScore(@PathVariable UUID id,
+            @RequestHeader(value = "X-User-Id", required = false) String user) {
+        return demands.calculatePreScore(id, actor(user));
     }
 }

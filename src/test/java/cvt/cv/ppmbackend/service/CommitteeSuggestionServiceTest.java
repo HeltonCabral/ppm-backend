@@ -80,6 +80,23 @@ class CommitteeSuggestionServiceTest {
         assertThat(response.alternatives()).isEmpty();
     }
 
+    @Test
+    void ignoresStrategicCommittees() {
+        Committee strategic = committee("Comité Estratégico", true);
+        strategic.getDomains().add("Digital");
+
+        Committee regular = committee("Comité Regular");
+        regular.getDomains().add("Digital");
+
+        when(committees.findByStatusOrderByNameAsc(CommitteeStatus.ACTIVE))
+                .thenReturn(List.of(strategic, regular));
+
+        CommitteeSuggestionResponse response = service.suggest(demand());
+
+        assertThat(response.suggestedCommitteeId()).isEqualTo(regular.getId());
+        assertThat(response.alternatives()).isEmpty();
+    }
+
     private Demand demand() {
         Demand demand = new Demand();
         demand.setDirection("Financeira");
@@ -99,11 +116,16 @@ class CommitteeSuggestionServiceTest {
     }
 
     private Committee committee(String name) {
+        return committee(name, false);
+    }
+
+    private Committee committee(String name, boolean strategic) {
         Committee committee = new Committee();
         committee.setId(UUID.randomUUID());
         committee.setName(name);
         committee.setNameKey(name.toLowerCase().replace(' ', '-'));
         committee.setStatus(CommitteeStatus.ACTIVE);
+        committee.setStrategicCommittee(strategic);
         return committee;
     }
 }

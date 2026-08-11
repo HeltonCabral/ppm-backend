@@ -34,13 +34,13 @@ public class DemandScoringService {
     private static final BigDecimal ZERO = BigDecimal.ZERO;
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
     private static final String STATUS_IN_ANALYSIS = "IN_ANALYSIS";
-        private static final String STATUS_IN_PRIORIZATION = "IN_PRIORIZATION";
-        private static final String STATUS_PRIORITIZED = "PRIORITIZED";
-        private static final String STATUS_UNDER_PRIORITIZATION = "UNDER_PRIORITIZATION";
-        private static final String STATUS_READY_FOR_COMMITTEE = "READY_FOR_COMMITTEE";
+    private static final String STATUS_IN_PRIORITIZATION = "IN_PRIORITIZATION";
+    private static final String STATUS_PRIORITIZED = "PRIORITIZED";
+    private static final String STATUS_UNDER_PRIORITIZATION = "UNDER_PRIORITIZATION";
+    private static final String STATUS_READY_FOR_COMMITTEE = "READY_FOR_COMMITTEE";
     private static final Set<String> AUTO_STATUS_SCOPE = Set.of(
             STATUS_IN_ANALYSIS,
-            STATUS_IN_PRIORIZATION,
+            STATUS_IN_PRIORITIZATION,
             STATUS_PRIORITIZED,
             STATUS_UNDER_PRIORITIZATION,
             STATUS_READY_FOR_COMMITTEE);
@@ -244,12 +244,14 @@ public class DemandScoringService {
                 cb.isNull(root.get("scoreTotal")),
                 cb.or(
                         cb.isNotNull(root.get("portfolioRank")),
-                        cb.isNotNull(root.get("directionRank"))));
+                cb.isNotNull(root.get("directionRank")),
+                cb.isNotNull(root.get("committeeRank"))));
 
         List<Demand> noScoreDemands = demands.findAll(noScoreWithRankSpec);
         for (Demand noScoreDemand : noScoreDemands) {
             noScoreDemand.setPortfolioRank(null);
             noScoreDemand.setDirectionRank(null);
+            noScoreDemand.setCommitteeRank(null);
         }
         if (!noScoreDemands.isEmpty()) {
             demands.saveAll(noScoreDemands);
@@ -258,6 +260,7 @@ public class DemandScoringService {
 
     void assignRanks(List<Demand> rankedDemands) {
         Map<String, Integer> nextRankByDirection = new HashMap<>();
+        Map<UUID, Integer> nextRankByCommittee = new HashMap<>();
         int portfolioRank = 1;
 
         for (Demand rankedDemand : rankedDemands) {
@@ -266,6 +269,10 @@ public class DemandScoringService {
             rankedDemand.setDirectionRank(directionKey == null
                     ? null
                     : nextRankByDirection.merge(directionKey, 1, Integer::sum));
+            UUID committeeId = rankedDemand.getResponsibleCommitteeId();
+            rankedDemand.setCommitteeRank(committeeId == null
+                    ? null
+                    : nextRankByCommittee.merge(committeeId, 1, Integer::sum));
         }
     }
 
@@ -321,7 +328,7 @@ public class DemandScoringService {
         }
 
         if (STATUS_IN_ANALYSIS.equals(currentStatus)) {
-            demand.setStatus(STATUS_IN_PRIORIZATION);
+            demand.setStatus(STATUS_IN_PRIORITIZATION);
             demand.setUpdatedBy(actor);
         }
     }
@@ -333,6 +340,9 @@ public class DemandScoringService {
         String normalized = status.trim().toUpperCase(Locale.ROOT);
         if ("IN_ANALYSYS".equals(normalized)) {
             return STATUS_IN_ANALYSIS;
+        }
+        if ("IN_PRIORIZATION".equals(normalized)) {
+            return STATUS_IN_PRIORITIZATION;
         }
         return normalized;
     }

@@ -17,6 +17,16 @@ public final class CommitteeDtos {
     private CommitteeDtos() {
     }
 
+        public record Member(
+                        @NotBlank(message = "O nome do membro é obrigatório.")
+                        @Size(max = 200, message = "O nome do membro não pode exceder 200 caracteres.")
+                        String name,
+
+                        @NotBlank(message = "O código do membro é obrigatório.")
+                        @Size(max = 100, message = "O código do membro não pode exceder 100 caracteres.")
+                        String code) {
+        }
+
     public record Request(
             @NotBlank(message = "O nome do comité é obrigatório.")
             @Size(max = 150, message = "O nome do comité não pode exceder 150 caracteres.")
@@ -33,8 +43,7 @@ public final class CommitteeDtos {
 
             @NotNull(message = "A lista de membros é obrigatória.")
             @Valid
-            List<@NotBlank(message = "Os membros não podem conter valores vazios.")
-                    @Size(max = 200, message = "Cada membro não pode exceder 200 caracteres.") String> members,
+            List<@Valid Member> members,
 
             @NotNull(message = "A lista de direções é obrigatória.")
             @Valid
@@ -66,7 +75,7 @@ public final class CommitteeDtos {
             String description,
             CommitteeStatus status,
             boolean isStrategicCommittee,
-            List<String> members,
+            List<Member> members,
             List<String> directions,
             List<String> demandTypes,
             List<String> domains,

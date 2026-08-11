@@ -1,0 +1,2 @@
+ALTER TABLE demands
+    ADD COLUMN IF NOT EXISTS committee_rank INTEGER;

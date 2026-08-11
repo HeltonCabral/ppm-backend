@@ -53,8 +53,7 @@ public class Committee extends BaseEntity {
     @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "committee_members", joinColumns = @JoinColumn(name = "committee_id"))
     @OrderColumn(name = "member_order")
-    @Column(name = "member_name", nullable = false, length = 200)
-    private List<String> members = new ArrayList<>();
+    private List<CommitteeMember> members = new ArrayList<>();
 
     @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "committee_directions", joinColumns = @JoinColumn(name = "committee_id"))

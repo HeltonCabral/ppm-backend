@@ -49,7 +49,8 @@ class CommitteeControllerTest {
                 .andExpect(jsonPath("$.status").value("ACTIVE"))
                 .andExpect(jsonPath("$.isStrategicCommittee").value(true))
                 .andExpect(jsonPath("$.members", hasSize(2)))
-                .andExpect(jsonPath("$.members[0]").value("CFO"))
+                .andExpect(jsonPath("$.members[0].name").value("CFO"))
+                .andExpect(jsonPath("$.members[0].code").value("cfo-001"))
                 .andExpect(jsonPath("$.directions[0]").value("Financeira"))
                 .andExpect(jsonPath("$.demandTypes[0]").value("Inovação"))
                 .andExpect(jsonPath("$.domains[0]").value("Digital"))
@@ -82,7 +83,10 @@ class CommitteeControllerTest {
                   "description": "Decide prioridades.",
                   "status": "ACTIVE",
                   "isStrategicCommittee": true,
-                  "members": ["CFO", " cfo "],
+                                                                        "members": [
+                                                                                { "name": "CFO", "code": "cfo-001" },
+                                                                                { "name": "Financeiro", "code": "cfo-001" }
+                                                                        ],
                   "directions": [],
                   "demandTypes": [],
                   "domains": [],
@@ -96,7 +100,7 @@ class CommitteeControllerTest {
                         .content(body))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
-                .andExpect(jsonPath("$.message").value("A lista de membros não pode conter valores duplicados."));
+                .andExpect(jsonPath("$.message").value("A lista de membros não pode conter códigos duplicados."));
     }
 
     @Test
@@ -107,7 +111,9 @@ class CommitteeControllerTest {
                   "description": "Decide prioridades.",
                   "status": "ACTIVE",
                   "isStrategicCommittee": true,
-                  "members": [""],
+                                                                        "members": [
+                                                                                { "name": "", "code": "cfo-001" }
+                                                                        ],
                   "directions": [],
                   "demandTypes": [],
                   "domains": [],
@@ -120,8 +126,8 @@ class CommitteeControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$['fieldErrors']['members[0]']")
-                        .value("Os membros não podem conter valores vazios."));
+                .andExpect(jsonPath("$['fieldErrors']['members[0].name']")
+                        .value("O nome do membro é obrigatório."));
     }
 
     @Test
@@ -162,7 +168,9 @@ class CommitteeControllerTest {
                   "description": "Descrição atualizada.",
                   "status": "INACTIVE",
                   "isStrategicCommittee": false,
-                  "members": ["PMO"],
+                                                                        "members": [
+                                                                                { "name": "PMO", "code": "pmo-001" }
+                                                                        ],
                   "directions": ["Estratégia"],
                   "demandTypes": ["Melhoria"],
                   "domains": ["Sistemas"],
@@ -208,7 +216,10 @@ class CommitteeControllerTest {
                   "description": "Decide prioridades.",
                   "status": "ACTIVE",
                   "isStrategicCommittee": true,
-                  "members": ["CFO", "CTO"],
+                                                                        "members": [
+                                                                                { "name": "CFO", "code": "cfo-001" },
+                                                                                { "name": "CTO", "code": "cto-001" }
+                                                                        ],
                   "directions": ["Financeira"],
                   "demandTypes": ["Inovação"],
                   "domains": ["Digital"],

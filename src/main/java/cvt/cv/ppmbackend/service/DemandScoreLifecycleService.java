@@ -23,15 +23,16 @@ public class DemandScoreLifecycleService {
 
     private static final Set<String> SCORING_ELIGIBLE_STATUSES = Set.of(
             "IN_ANALYSIS",
-            "IN_PRIORIZATION",
+            "IN_PRIORITIZATION",
             "PRIORITIZED",
             "UNDER_PRIORITIZATION",
             "READY_FOR_COMMITTEE");
     private static final Map<String, Integer> WORKFLOW_ORDER = Map.of(
             "IN_ANALYSIS", 0,
-            "IN_PRIORIZATION", 1,
+            "IN_PRIORITIZATION", 1,
             "UNDER_PRIORITIZATION", 1,
             "PRIORITIZED", 2,
+            "IN_STRATEGIC_COMMITTEE", 3,
             "READY_FOR_COMMITTEE", 3);
 
     private final ObjectMapper objectMapper;
@@ -132,6 +133,7 @@ public class DemandScoreLifecycleService {
             snapshot.put("scoreTotal", demand.getScoreTotal());
             snapshot.put("portfolioRank", demand.getPortfolioRank());
             snapshot.put("directionRank", demand.getDirectionRank());
+            snapshot.put("committeeRank", demand.getCommitteeRank());
             snapshot.put("scoreStatus", demand.getScoreStatus());
             snapshot.put("scoreCalculatedAt", demand.getScoreCalculatedAt());
             try {
@@ -144,6 +146,7 @@ public class DemandScoreLifecycleService {
         demand.setScoreTotal(null);
         demand.setPortfolioRank(null);
         demand.setDirectionRank(null);
+        demand.setCommitteeRank(null);
         demand.setScoreInvalidatedAt(Instant.now());
         demand.setScoreInvalidationReason(reason);
         demand.setScoreStatus(targetScoreStatus);
@@ -157,8 +160,8 @@ public class DemandScoreLifecycleService {
         if ("IN_ANALYSYS".equals(normalized)) {
             return "IN_ANALYSIS";
         }
-        if ("IN_PRIORITIZATION".equals(normalized)) {
-            return "IN_PRIORIZATION";
+        if ("IN_PRIORIZATION".equals(normalized)) {
+            return "IN_PRIORITIZATION";
         }
         return normalized;
     }

@@ -1,6 +1,7 @@
 package cvt.cv.ppmbackend.service;
 
 import cvt.cv.ppmbackend.dto.CommitteeDtos;
+import cvt.cv.ppmbackend.entity.CommitteeMember;
 import cvt.cv.ppmbackend.entity.Committee;
 import cvt.cv.ppmbackend.enums.CommitteeStatus;
 import cvt.cv.ppmbackend.exception.DomainException;
@@ -59,6 +60,11 @@ public class CommitteeService {
         return committee;
     }
 
+    @Transactional(readOnly = true)
+    public List<Committee> findByMemberCode(String username) {
+        return committees.findByMemberCode(username);
+    }
+
     public CommitteeDtos.Response create(CommitteeDtos.Request request) {
         String normalizedName = request.name().trim();
         ensureUniqueName(normalizedName, null);
@@ -77,7 +83,7 @@ public class CommitteeService {
 
     public void delete(UUID id) {
         Committee committee = requireCommittee(id);
-        if (demands.existsBySuggestedCommitteeIdOrResponsibleCommitteeId(id, id)) {
+        if (demands.existsByResponsibleCommitteeId(id)) {
             throw new DomainException(
                     HttpStatus.CONFLICT,
                     "COMMITTEE_IN_USE",
@@ -105,7 +111,7 @@ public class CommitteeService {
 
     private Committee apply(CommitteeDtos.Request request, Committee committee, String normalizedName) {
         CommitteeStatus status = parseStatus(request.status());
-        List<String> members = normalizeUnique(request.members(), "members", "membros");
+        List<CommitteeMember> members = normalizeUniqueMembers(request.members());
         List<String> directions = normalizeUnique(request.directions(), "directions", "direções");
         List<String> demandTypes = normalizeUnique(request.demandTypes(), "demandTypes", "tipos de demanda");
         List<String> domains = normalizeUnique(request.domains(), "domains", "domínios");
@@ -148,7 +154,23 @@ public class CommitteeService {
         return normalized;
     }
 
-    private void replace(List<String> target, List<String> values) {
+    private List<CommitteeMember> normalizeUniqueMembers(List<CommitteeDtos.Member> values) {
+        List<CommitteeMember> normalized = new ArrayList<>(values.size());
+        Set<String> seenCodes = new HashSet<>();
+
+        for (CommitteeDtos.Member value : values) {
+            String name = value.name().trim();
+            String code = value.code().trim();
+            if (!seenCodes.add(code.toLowerCase(Locale.ROOT))) {
+                throw validationError("members", "A lista de membros não pode conter códigos duplicados.");
+            }
+            normalized.add(new CommitteeMember(name, code));
+        }
+
+        return normalized;
+    }
+
+    private <T> void replace(List<T> target, List<T> values) {
         target.clear();
         target.addAll(values);
     }
@@ -184,7 +206,9 @@ public class CommitteeService {
                 committee.getDescription(),
                 committee.getStatus(),
                 committee.isStrategicCommittee(),
-                List.copyOf(committee.getMembers()),
+                committee.getMembers().stream()
+                        .map(member -> new CommitteeDtos.Member(member.getName(), member.getCode()))
+                        .toList(),
                 List.copyOf(committee.getDirections()),
                 List.copyOf(committee.getDemandTypes()),
                 List.copyOf(committee.getDomains()),

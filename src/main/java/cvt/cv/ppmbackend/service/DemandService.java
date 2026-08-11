@@ -3,6 +3,7 @@ package cvt.cv.ppmbackend.service;
 import cvt.cv.ppmbackend.dto.DemandDtos.*;
 import cvt.cv.ppmbackend.dto.DemandScoringDtos.DemandScoringResponse;
 import cvt.cv.ppmbackend.dto.CommitteeSuggestionResponse;
+import cvt.cv.ppmbackend.dto.PreScoreResponse;
 import cvt.cv.ppmbackend.entity.*;
 import cvt.cv.ppmbackend.enums.CommitteeStatus;
 import cvt.cv.ppmbackend.enums.ExecutiveStatus;
@@ -28,11 +29,12 @@ import java.util.*;
 @Transactional
 public class DemandService {
     private static final String STATUS_IN_ANALYSIS = "IN_ANALYSIS";
+    private static final String STATUS_IN_PRIORITIZATION = "IN_PRIORITIZATION";
+    private static final String STATUS_IN_STRATEGIC_COMMITTEE = "IN_STRATEGIC_COMMITTEE";
     private static final Set<String> PRIORITY_CODES = Set.of("LOW", "MEDIUM", "HIGH", "CRITICAL");
-    private static final Set<String> EFFORT_CODES = Set.of("XS", "S", "M", "L", "XL");
-        private static final Set<String> STATUS_CODES = Set.of(STATUS_IN_ANALYSIS, "IN_PRIORIZATION",
-            "IN_PRIORITIZATION",
-            "PRIORITIZED", "APPROVED", "REJECTED", "CONVERTED_TO_PROJECT", "ARCHIVED",
+    private static final Set<String> EFFORT_CODES = Set.of("LOW", "MEDIUM", "HIGH");
+    private static final Set<String> STATUS_CODES = Set.of(STATUS_IN_ANALYSIS, STATUS_IN_PRIORITIZATION,
+            "PRIORITIZED", STATUS_IN_STRATEGIC_COMMITTEE, "APPROVED", "REJECTED", "CONVERTED_TO_PROJECT", "ARCHIVED",
             "UNDER_PRIORITIZATION", "READY_FOR_COMMITTEE");
     private static final Set<String> CAPACITY_CODES = Set.of("NOT_ANALYZED", "AVAILABLE", "LIMITED", "UNAVAILABLE");
     private static final Set<String> RISK_CODES = Set.of("NOT_EVALUATED", "LOW", "MEDIUM", "HIGH", "CRITICAL");
@@ -56,13 +58,15 @@ public class DemandService {
     private final LookupValueService lookups;
     private final DemandScoringService scoringService;
     private final DemandScoreLifecycleService scoreLifecycle;
+    private final DemandPreScoreService preScoreService;
 
     public DemandService(DemandRepository demands, DemandAttachmentRepository attachments, DemandHistoryRepository history,
             DemandCodeService codeService, DemandHistoryService historyService, StrategicPlanService strategicPlans,
             OperationalPlanService operationalPlans, StrategicPillarService pillars, StrategicObjectiveService objectives,
             ProgramService programs, CommitteeService committees, CommitteeSuggestionService committeeSuggestions,
             ProjectRepository projects, LookupValueService lookups,
-            DemandScoringService scoringService, DemandScoreLifecycleService scoreLifecycle) {
+            DemandScoringService scoringService, DemandScoreLifecycleService scoreLifecycle,
+            DemandPreScoreService preScoreService) {
         this.demands = demands;
         this.attachments = attachments;
         this.history = history;
@@ -79,6 +83,7 @@ public class DemandService {
         this.lookups = lookups;
         this.scoringService = scoringService;
         this.scoreLifecycle = scoreLifecycle;
+        this.preScoreService = preScoreService;
     }
 
     public DemandResponse create(Create req, String actorId) {
@@ -144,6 +149,7 @@ public class DemandService {
         String oldStatus = norm(d.getStatus());
         scoreLifecycle.applyStatusTransition(d, oldStatus, "ARCHIVED", "Demanda arquivada por eliminação lógica");
         d.setStatus("ARCHIVED");
+        syncStrategicCommitteeStage(d, oldStatus, "ARCHIVED");
         d.setDeletedAt(Instant.now());
         d.setUpdatedBy(actor(actorId));
         recomputeRanksIfNeeded(previousScore, previousDirection, d);
@@ -162,6 +168,7 @@ public class DemandService {
         validateTransition(d, from, to, req.reason());
         scoreLifecycle.applyStatusTransition(d, from, to, req.reason());
         d.setStatus(to);
+        syncStrategicCommitteeStage(d, from, to);
         d.setUpdatedBy(actor(actorId));
         if ("APPROVED".equals(to) && d.getCommitteeDecision() == null)
             d.setCommitteeDecision("APPROVED");
@@ -180,50 +187,78 @@ public class DemandService {
         return map(saved);
     }
 
+    @Transactional
+    public DemandResponse sendToStrategicCommittee(UUID id, String reason, String actorId) {
+        return changeStatus(id, new StatusPatch(STATUS_IN_STRATEGIC_COMMITTEE, reason), actorId);
+    }
+
+    @Transactional
+    public List<DemandResponse> sendToStrategicCommitteeBulk(List<UUID> demandIds, String reason, String actorId) {
+        return demandIds.stream()
+                .distinct()
+                .map(demandId -> sendToStrategicCommittee(demandId, reason, actorId))
+                .toList();
+    }
+
     public CommitteeSuggestionResponse committeeSuggestion(UUID id) {
         return committeeSuggestions.suggest(entity(id));
     }
 
     @Transactional
-    public CommitteeSuggestionResponse applyCommitteeSuggestion(UUID id, String actorId) {
-        Demand demand = entity(id);
-        CommitteeSuggestionService.SuggestionResult result = committeeSuggestions.calculate(demand);
-        Committee suggested = result.suggestedCommittee();
-        demand.setSuggestedCommittee(suggested);
-        if (demand.getResponsibleCommittee() == null && suggested != null) {
-            demand.setResponsibleCommittee(suggested);
-            demand.setCommitteeChangeJustification(null);
+    public List<DemandResponse> listInPriorizationByUsername(String username) {
+        if (username == null || username.isBlank()) {
+            throw new BadRequestException("username é obrigatório");
         }
-        demand.setUpdatedBy(actor(actorId));
-        Demand saved = demands.save(demand);
-        historyService.log(saved, "COMMITTEE_SUGGESTION_APPLIED", saved.getStatus(), saved.getStatus(),
-                suggested == null ? "Nenhum comité sugerido" : "Sugestão de comité aplicada",
-                actor(actorId), actor(actorId),
-                suggested == null ? Map.of("score", result.response().score())
-                        : Map.of("committeeId", suggested.getId().toString(), "score", result.response().score()));
-        return result.response();
+
+        List<Committee> userCommittees = committees.findByMemberCode(username.trim());
+        if (userCommittees.isEmpty()) {
+            throw domain(HttpStatus.NOT_FOUND, "COMMITTEE_NOT_FOUND_FOR_USER",
+                    "Nenhum comité encontrado para o username informado", Map.of("username", username));
+        }
+
+        List<UUID> committeeIds = userCommittees.stream()
+            .map(Committee::getId)
+            .toList();
+        return demands.findByResponsibleCommittee_IdInAndStatusAndDeletedAtIsNullOrderByPreScoreDescCreatedAtDesc(
+                committeeIds,
+                        "IN_PRIORITIZATION")
+                .stream()
+                .map(this::map)
+                .toList();
     }
 
     @Transactional
-    public DemandResponse confirmCommittee(UUID id, ConfirmCommitteeRequest request, String actorId) {
+    public DemandResponse assignCommittee(UUID id, AssignCommitteeRequest request, String actorId) {
         Demand demand = entity(id);
-        Committee confirmed = committees.findActiveEntityById(request.committeeId());
-        boolean differsFromSuggestion = !sameCommittee(confirmed, demand.getSuggestedCommittee());
-        String justification = trimToNull(request.justification());
-        if (differsFromSuggestion && justification == null) {
-            throw domain(HttpStatus.UNPROCESSABLE_ENTITY, "COMMITTEE_CHANGE_JUSTIFICATION_REQUIRED",
-                    "A justificação é obrigatória quando o comité confirmado difere do sugerido.",
-                    Map.of("committeeId", confirmed.getId().toString()));
-        }
+        Committee committee = committees.findActiveEntityById(request.committeeId());
 
-        demand.setResponsibleCommittee(confirmed);
-        demand.setCommitteeChangeJustification(differsFromSuggestion ? justification : null);
+        String previousStatus = demand.getStatus();
+        demand.setResponsibleCommittee(committee);
+        demand.setStatus("IN_PRIORITIZATION");
+        syncStrategicCommitteeStage(demand, previousStatus, "IN_PRIORITIZATION");
         demand.setUpdatedBy(actor(actorId));
+        
+        scoreLifecycle.applyStatusTransition(demand, previousStatus, "IN_PRIORITIZATION", 
+                "Status alterado automaticamente ao atribuir comité");
+        
         Demand saved = demands.save(demand);
-        historyService.log(saved, "COMMITTEE_CONFIRMED", saved.getStatus(), saved.getStatus(),
-                "Comité responsável confirmado", actor(actorId), actor(actorId),
-                Map.of("committeeId", confirmed.getId().toString()));
+        historyService.log(saved, "COMMITTEE_ASSIGNED", previousStatus, "IN_PRIORITIZATION",
+                "Comité responsável atribuído e status alterado para Em Priorização", 
+                actor(actorId), actor(actorId),
+                Map.of("committeeId", committee.getId().toString()));
         return map(saved);
+    }
+
+    @Transactional
+    public PreScoreResponse calculatePreScore(UUID id, String actorId) {
+        Demand demand = entity(id);
+        DemandPreScoreService.PreScoreResult result = preScoreService.calculate(demand);
+        demand.setUpdatedBy(actor(actorId));
+        demands.save(demand);
+        historyService.log(demand, "PRE_SCORE_CALCULATED", demand.getStatus(), demand.getStatus(),
+                "Pré-score calculado", actor(actorId), actor(actorId),
+                Map.of("preScore", result.preScore().toString(), "classification", result.preScoreClassification()));
+        return new PreScoreResponse(result.preScore(), result.preScoreClassification());
     }
 
     @Transactional
@@ -342,6 +377,7 @@ public class DemandService {
                 "Demanda convertida em projeto");
         d.setConvertedProject(savedProject);
         d.setStatus("CONVERTED_TO_PROJECT");
+        syncStrategicCommitteeStage(d, "APPROVED", "CONVERTED_TO_PROJECT");
         d.setUpdatedBy(actor(actorId));
         Demand savedDemand = demands.save(d);
         recomputeRanksIfNeeded(previousScore, previousDirection, savedDemand);
@@ -483,9 +519,7 @@ public class DemandService {
         d.setProgram(req.programId() == null ? null : programs.findById(req.programId()));
         Committee assignedCommittee = req.committeeId() == null ? null
                 : committees.findActiveEntityById(req.committeeId());
-        d.setSuggestedCommittee(assignedCommittee);
         d.setResponsibleCommittee(assignedCommittee);
-        d.setCommitteeChangeJustification(null);
         d.setDomain(req.domainId() == null ? null : lookups.findById(req.domainId()));
         d.setImpactedSystem(req.impactedSystem());
         d.setInitialPriority(req.initialPriority() == null ? null : norm(req.initialPriority()));
@@ -509,6 +543,9 @@ public class DemandService {
             d.setStatus(STATUS_IN_ANALYSIS);
 
         validateBusinessRules(d);
+        
+        // Calcular pré-score automaticamente
+        preScoreService.calculate(d);
     }
 
     private void validateBusinessRules(Demand d) {
@@ -575,12 +612,14 @@ public class DemandService {
                     Map.of("from", from, "to", to));
         }
         Map<String, Set<String>> next = new HashMap<>();
-        next.put(STATUS_IN_ANALYSIS, Set.of("IN_PRIORIZATION", "REJECTED", "ARCHIVED"));
-        next.put("IN_PRIORIZATION", Set.of("PRIORITIZED", "REJECTED", "ARCHIVED", STATUS_IN_ANALYSIS));
-        next.put("PRIORITIZED", Set.of("APPROVED", "REJECTED", STATUS_IN_ANALYSIS, "IN_PRIORIZATION", "ARCHIVED"));
+        next.put(STATUS_IN_ANALYSIS, Set.of(STATUS_IN_PRIORITIZATION, "REJECTED", "ARCHIVED"));
+        next.put(STATUS_IN_PRIORITIZATION, Set.of("PRIORITIZED", "REJECTED", "ARCHIVED", STATUS_IN_ANALYSIS));
+        next.put("PRIORITIZED", Set.of(STATUS_IN_STRATEGIC_COMMITTEE, "ARCHIVED"));
+        next.put(STATUS_IN_STRATEGIC_COMMITTEE,
+            Set.of("APPROVED", "REJECTED", STATUS_IN_ANALYSIS, STATUS_IN_PRIORITIZATION, "ARCHIVED"));
         next.put("UNDER_PRIORITIZATION", Set.of("PRIORITIZED", "READY_FOR_COMMITTEE", "REJECTED", "ARCHIVED", STATUS_IN_ANALYSIS));
         next.put("READY_FOR_COMMITTEE",
-            Set.of("APPROVED", "REJECTED", STATUS_IN_ANALYSIS, "IN_PRIORIZATION", "UNDER_PRIORITIZATION", "ARCHIVED"));
+            Set.of("APPROVED", "REJECTED", STATUS_IN_ANALYSIS, STATUS_IN_PRIORITIZATION, "UNDER_PRIORITIZATION", "ARCHIVED"));
         next.put("APPROVED", Set.of("CONVERTED_TO_PROJECT", "ARCHIVED"));
         next.put("REJECTED", Set.of(STATUS_IN_ANALYSIS, "ARCHIVED"));
         next.put("CONVERTED_TO_PROJECT", Set.of("ARCHIVED"));
@@ -604,10 +643,22 @@ public class DemandService {
     private String eventTypeForTransition(String to) {
         return switch (to) {
             case "PRIORITIZED", "READY_FOR_COMMITTEE" -> "SUBMITTED_TO_COMMITTEE";
+            case STATUS_IN_STRATEGIC_COMMITTEE -> "SENT_TO_STRATEGIC_COMMITTEE";
             case "APPROVED" -> "APPROVED";
             case "REJECTED" -> "REJECTED";
             default -> "STATUS_CHANGED";
         };
+    }
+
+    private void syncStrategicCommitteeStage(Demand demand, String from, String to) {
+        if (STATUS_IN_STRATEGIC_COMMITTEE.equals(to)) {
+            demand.setInStrategicCommittee(true);
+            if (!STATUS_IN_STRATEGIC_COMMITTEE.equals(from)) {
+                demand.setStrategicCommitteeAt(Instant.now());
+            }
+            return;
+        }
+        demand.setInStrategicCommittee(false);
     }
 
     private Demand entity(UUID id) {
@@ -629,7 +680,6 @@ public class DemandService {
         StrategicPillarSummary strategicPillar = mapStrategicPillar(d.getStrategicPillar());
         StrategicObjectiveSummary strategicObjective = mapStrategicObjective(d.getStrategicObjective());
         ProgramSummary program = mapProgram(d.getProgram());
-        CommitteeSummary suggestedCommittee = mapCommittee(d.getSuggestedCommittee());
         CommitteeSummary responsibleCommittee = mapCommittee(d.getResponsibleCommittee());
         CommitteeSummary committee = responsibleCommittee;
         ProjectSummary convertedProject = mapProject(d.getConvertedProject());
@@ -638,20 +688,22 @@ public class DemandService {
                 d.getDirection(), d.getSponsor(), d.getTypeId(), typeCode, d.getOrigin(), d.getEasyVistaRef(),
                 d.getStrategicPlanId(),
                 d.getOperationalPlanId(), d.getStrategicPillarId(), d.getStrategicObjectiveId(), d.getProgramId(),
-                d.getCommitteeId(), d.getSuggestedCommitteeId(), d.getResponsibleCommitteeId(),
-                d.getCommitteeChangeJustification(), d.getDomainId(), domainCode, d.getImpactedSystem(),
+                d.getCommitteeId(), d.getResponsibleCommitteeId(),
+                d.getDomainId(), domainCode, d.getImpactedSystem(),
                 d.getInitialPriority(), d.getEstimatedEffort(),
                 d.getExpectedImpact(),
                 d.getExpectedBenefit(), d.getUrgency(), d.getEstimatedBudget(), d.getDesiredDate(), d.getNotes(),
-                norm(d.getStatus()), d.getCapacityStatus(), d.getRiskStatus(), d.getRisksIdentified(),
+                norm(d.getStatus()), d.isInStrategicCommittee(), d.getStrategicCommitteeAt(),
+                d.getCapacityStatus(), d.getRiskStatus(), d.getRisksIdentified(),
                 d.getDependenciesIdentified(), d.getScoreTotal(),
                 d.getScoreStatus(), d.getScoreCalculatedAt(), d.getScoreInvalidatedAt(),
                 d.getScoreInvalidationReason(), scoreLifecycle.previousScoreSnapshot(d),
-                d.getPortfolioRank(), d.getDirectionRank(), d.getApprovalType(), d.getCommitteeDecision(),
+                d.getPreScore(), d.getPreScoreClassification(),
+                d.getPortfolioRank(), d.getDirectionRank(), d.getCommitteeRank(), d.getApprovalType(), d.getCommitteeDecision(),
                 d.getRejectionReason(),
                 d.getConvertedProjectId(), d.getCreatedAt(), d.getCreatedBy(), d.getUpdatedAt(), d.getUpdatedBy(),
                 d.getVersion(), typeData, domainData, strategicPlan, operationalPlan, strategicPillar,
-                strategicObjective, program, committee, suggestedCommittee, responsibleCommittee,
+                strategicObjective, program, committee, responsibleCommittee,
                 convertedProject, att, calculatedScoring);
     }
 
@@ -817,20 +869,6 @@ public class DemandService {
                     "O comité responsável deve estar ativo.",
                     Map.of("committeeId", responsible.getId().toString()));
         }
-        if (!sameCommittee(responsible, demand.getSuggestedCommittee())
-                && trimToNull(demand.getCommitteeChangeJustification()) == null) {
-            throw domain(HttpStatus.UNPROCESSABLE_ENTITY, "COMMITTEE_CHANGE_JUSTIFICATION_REQUIRED",
-                    "A justificação é obrigatória quando o comité responsável difere do sugerido.",
-                    Map.of("committeeId", responsible.getId().toString()));
-        }
-    }
-
-    private boolean sameCommittee(Committee first, Committee second) {
-        return first != null && second != null && Objects.equals(first.getId(), second.getId());
-    }
-
-    private String trimToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private void recomputeRanksIfNeeded(BigDecimal previousScore, String previousDirection, Demand demand) {
@@ -985,8 +1023,8 @@ public class DemandService {
         if ("IN_ANALYSYS".equals(normalized)) {
             return STATUS_IN_ANALYSIS;
         }
-        if ("IN_PRIORITIZATION".equals(normalized)) {
-            return "IN_PRIORIZATION";
+        if ("IN_PRIORIZATION".equals(normalized)) {
+            return STATUS_IN_PRIORITIZATION;
         }
         return normalized;
     }

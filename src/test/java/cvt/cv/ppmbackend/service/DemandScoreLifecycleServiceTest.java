@@ -65,8 +65,8 @@ class DemandScoreLifecycleServiceTest {
 
     @Test
     void recalculationRestoresValidStateAndClearsInvalidation() {
-        Demand demand = scoredDemand("IN_PRIORIZATION");
-        lifecycle.applyStatusTransition(demand, "IN_PRIORIZATION", "REJECTED", "Fora de âmbito");
+        Demand demand = scoredDemand("IN_PRIORITIZATION");
+        lifecycle.applyStatusTransition(demand, "IN_PRIORITIZATION", "REJECTED", "Fora de âmbito");
         demand.setScoreTotal(new BigDecimal("91.00"));
         demand.setPortfolioRank(1);
 
@@ -104,7 +104,8 @@ class DemandScoreLifecycleServiceTest {
                 mock(ProjectRepository.class),
                 mock(LookupValueService.class),
                 mock(DemandScoringService.class),
-                lifecycleMock);
+                lifecycleMock,
+                mock(DemandPreScoreService.class));
 
         assertThatThrownBy(() -> service.changeStatus(demandId, new StatusPatch("IN_ANALYSIS", null), "tester"))
                 .isInstanceOfSatisfying(DomainException.class, error -> {
@@ -168,7 +169,7 @@ class DemandScoreLifecycleServiceTest {
         UUID demandId = UUID.randomUUID();
         Demand demand = scoredDemand("IN_ANALYSIS");
         demand.setId(demandId);
-        lifecycle.applyStatusTransition(demand, "IN_PRIORIZATION", "REJECTED", "Rejeitada");
+        lifecycle.applyStatusTransition(demand, "IN_PRIORITIZATION", "REJECTED", "Rejeitada");
         DemandRepository demands = mock(DemandRepository.class);
         DemandScoringRepository scoring = mock(DemandScoringRepository.class);
         ScoringCriterionService criteria = mock(ScoringCriterionService.class);
@@ -255,7 +256,8 @@ class DemandScoreLifecycleServiceTest {
                 projects,
                 mock(LookupValueService.class),
                 mock(DemandScoringService.class),
-                lifecycle);
+                lifecycle,
+                mock(DemandPreScoreService.class));
 
         ConvertToProject request = new ConvertToProject(
                 null, null, null, null, null, null, null, null, null, null,

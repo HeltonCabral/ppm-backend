@@ -21,7 +21,6 @@ import java.util.UUID;
         @Index(name = "idx_demands_status", columnList = "status"),
         @Index(name = "idx_demands_origin", columnList = "origin"),
         @Index(name = "idx_demands_created_at", columnList = "created_at"),
-        @Index(name = "idx_demands_suggested_committee_id", columnList = "suggested_committee_id"),
         @Index(name = "idx_demands_responsible_committee_id", columnList = "responsible_committee_id")
 })
 @Getter
@@ -71,15 +70,13 @@ public class Demand extends BaseEntity {
     @JsonIgnore
     private Program program;
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "suggested_committee_id")
-    @JsonIgnore
-    private Committee suggestedCommittee;
-    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "responsible_committee_id")
     @JsonIgnore
     private Committee responsibleCommittee;
-    @Column(name = "committee_change_justification", length = 4000)
-    private String committeeChangeJustification;
+    @Column(name = "pre_score", precision = 5, scale = 2)
+    private BigDecimal preScore;
+    @Column(name = "pre_score_classification", length = 20)
+    private String preScoreClassification;
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "domain_id")
     private LookupValue domain;
@@ -103,6 +100,11 @@ public class Demand extends BaseEntity {
     private String notes;
     @Column(nullable = false, length = 50)
     private String status = "IN_ANALYSIS";
+    @Column(name = "in_strategic_committee", nullable = false)
+    @ColumnDefault("false")
+    private boolean inStrategicCommittee;
+    @Column(name = "strategic_committee_at")
+    private Instant strategicCommitteeAt;
     @Column(name = "capacity_status", length = 40)
     private String capacityStatus;
     @Column(name = "risk_status", length = 40)
@@ -128,6 +130,8 @@ public class Demand extends BaseEntity {
     private Integer portfolioRank;
     @Column(name = "direction_rank")
     private Integer directionRank;
+    @Column(name = "committee_rank")
+    private Integer committeeRank;
     @Column(name = "approval_type", length = 40)
     private String approvalType;
     @Column(name = "committee_decision", length = 60)
@@ -181,11 +185,6 @@ public class Demand extends BaseEntity {
     @JsonProperty("committeeId")
     public UUID getCommitteeId() {
         return getResponsibleCommitteeId();
-    }
-
-    @JsonProperty("suggestedCommitteeId")
-    public UUID getSuggestedCommitteeId() {
-        return suggestedCommittee != null ? suggestedCommittee.getId() : null;
     }
 
     @JsonProperty("responsibleCommitteeId")

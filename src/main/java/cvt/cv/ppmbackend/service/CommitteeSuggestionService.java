@@ -37,6 +37,7 @@ public class CommitteeSuggestionService {
 
     public SuggestionResult calculate(Demand demand) {
         List<ScoredCommittee> ranked = committees.findByStatusOrderByNameAsc(CommitteeStatus.ACTIVE).stream()
+            .filter(committee -> !committee.isStrategicCommittee())
                 .map(committee -> score(committee, demand))
                 .filter(candidate -> candidate.score() > 0)
                 .sorted(Comparator.comparingInt(ScoredCommittee::score).reversed()

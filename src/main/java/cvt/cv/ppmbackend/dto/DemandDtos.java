@@ -5,6 +5,7 @@ import cvt.cv.ppmbackend.enums.PlanType;
 import cvt.cv.ppmbackend.enums.Priority;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
@@ -146,9 +147,16 @@ public final class DemandDtos {
         public record StatusPatch(@NotBlank @Size(max = 50) String status, @Size(max = 4000) String reason) {
         }
 
-        public record ConfirmCommitteeRequest(
-                        @NotNull UUID committeeId,
-                        @Size(max = 4000) String justification) {
+        public record AssignCommitteeRequest(@NotNull UUID committeeId) {
+        }
+
+        public record SendToStrategicCommitteeRequest(@Size(max = 4000) String reason) {
+        }
+
+        public record SendToStrategicCommitteeBulkRequest(
+                        @NotEmpty(message = "A lista de demandas é obrigatória.")
+                        List<@NotNull(message = "A lista de demandas não pode conter IDs nulos.") UUID> demandIds,
+                        @Size(max = 4000) String reason) {
         }
 
         public record AttachmentCreate(
@@ -239,9 +247,7 @@ public final class DemandDtos {
                         UUID strategicObjectiveId,
                         UUID programId,
                         UUID committeeId,
-                        UUID suggestedCommitteeId,
                         UUID responsibleCommitteeId,
-                        String committeeChangeJustification,
                         UUID domainId,
                         String domain,
                         String impactedSystem,
@@ -254,6 +260,8 @@ public final class DemandDtos {
                         LocalDate desiredDate,
                         String notes,
                         String status,
+                        boolean inStrategicCommittee,
+                        Instant strategicCommitteeAt,
                         String capacityStatus,
                         String riskStatus,
                         String risksIdentified,
@@ -264,8 +272,11 @@ public final class DemandDtos {
                         Instant scoreInvalidatedAt,
                         String scoreInvalidationReason,
                         JsonNode previousScoreSnapshot,
+                        BigDecimal preScore,
+                        String preScoreClassification,
                         Integer portfolioRank,
                         Integer directionRank,
+                        Integer committeeRank,
                         String approvalType,
                         String committeeDecision,
                         String rejectionReason,
@@ -283,7 +294,6 @@ public final class DemandDtos {
                         StrategicObjectiveSummary strategicObjective,
                         ProgramSummary program,
                         CommitteeSummary committee,
-                        CommitteeSummary suggestedCommittee,
                         CommitteeSummary responsibleCommittee,
                         ProjectSummary convertedProject,
                         List<DemandAttachmentResponse> attachments,
