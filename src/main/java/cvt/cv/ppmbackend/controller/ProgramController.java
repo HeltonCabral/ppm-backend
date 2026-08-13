@@ -20,7 +20,7 @@ public class ProgramController extends AbstractCrudController<Program, ProgramCr
 
     @Override
     public List<ProgramResponse> findAll() {
-        return programService.findAll().stream().map(ProgramResponse::from).toList();
+        return programService.findAllWithProjects();
     }
 
     @Override

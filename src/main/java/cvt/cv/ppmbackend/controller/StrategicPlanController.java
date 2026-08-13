@@ -1,5 +1,7 @@
 package cvt.cv.ppmbackend.controller;
 
+import cvt.cv.ppmbackend.dto.StrategicPlanApprovalDtos.ConditionalApprovalResponse;
+import cvt.cv.ppmbackend.dto.StrategicPlanApprovalDtos.FinalApprovalResponse;
 import cvt.cv.ppmbackend.dto.StrategicPlanCreateRequest;
 import cvt.cv.ppmbackend.entity.StrategicPlan;
 import cvt.cv.ppmbackend.service.StrategicPlanService;
@@ -37,5 +39,23 @@ public class StrategicPlanController extends AbstractCrudController<StrategicPla
         URI uri = ServletUriComponentsBuilder.fromCurrentRequest().replacePath("/api/strategic-plans/{id}")
                 .buildAndExpand(saved.getId()).toUri();
         return ResponseEntity.created(uri).body(saved);
+    }
+
+    @PostMapping("/{id}/conditional-approval")
+    public ResponseEntity<ConditionalApprovalResponse> conditionalApproval(
+            @PathVariable UUID id,
+            @RequestHeader(value = "X-User-Id", defaultValue = "system") String actorId,
+            @RequestHeader(value = "X-User-Name", defaultValue = "Sistema") String actorName) {
+        ConditionalApprovalResponse response = plans.conditionalApproval(id, actorId, actorName);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/{id}/final-approval")
+    public ResponseEntity<FinalApprovalResponse> finalApproval(
+            @PathVariable UUID id,
+            @RequestHeader(value = "X-User-Id", defaultValue = "system") String actorId,
+            @RequestHeader(value = "X-User-Name", defaultValue = "Sistema") String actorName) {
+        FinalApprovalResponse response = plans.finalApproval(id, actorId, actorName);
+        return ResponseEntity.ok(response);
     }
 }

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonValue;
 public enum StrategicPlanStatus {
     DRAFT("Draft"),
     IN_REVIEW("Em Revisao"),
+    CONDITIONALLY_APPROVED("Aprovado Condicionalmente"),
     APPROVED("Aprovado"),
     ACTIVE("Ativo"),
     REPLACED("Substituido"),

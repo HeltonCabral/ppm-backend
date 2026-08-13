@@ -78,13 +78,13 @@ public class ProjectService extends AbstractCrudService<Project, ProjectCreateRe
 
     @Transactional(readOnly = true)
     public List<Project> findByDomain(UUID domainId) {
-        return projects.findByDomainId(domainId);
+        return projects.findByDomain_Id(domainId);
     }
 
     @Transactional(readOnly = true)
     public List<Project> findByProgram(UUID id) {
         programs.findById(id);
-        return projects.findByProgramId(id);
+        return projects.findByProgram_Id(id);
     }
 
     @Transactional(readOnly = true)

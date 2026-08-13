@@ -205,6 +205,25 @@ public class Demand extends BaseEntity {
     @JsonIgnore
     private Project convertedProject;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "converted_program_id")
+    @JsonIgnore
+    private Program convertedProgram;
+
+    @Column(name = "converted_at")
+    private Instant convertedAt;
+
+    @Column(name = "converted_by", length = 150)
+    private String convertedBy;
+
+    @Column(name = "is_converted_to_project", nullable = false)
+    @ColumnDefault("false")
+    private boolean isConvertedToProject;
+
+    @Column(name = "is_converted_to_program", nullable = false)
+    @ColumnDefault("false")
+    private boolean isConvertedToProgram;
+
     @OneToMany(mappedBy = "demand", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     private List<DemandParticipatingDirection> participatingDirections = new ArrayList<>();
@@ -289,5 +308,10 @@ public class Demand extends BaseEntity {
     @JsonProperty("convertedProjectId")
     public UUID getConvertedProjectId() {
         return convertedProject != null ? convertedProject.getId() : null;
+    }
+
+    @JsonProperty("convertedProgramId")
+    public UUID getConvertedProgramId() {
+        return convertedProgram != null ? convertedProgram.getId() : null;
     }
 }

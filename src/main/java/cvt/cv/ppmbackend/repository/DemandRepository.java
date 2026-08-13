@@ -18,11 +18,26 @@ public interface DemandRepository extends JpaRepository<Demand, UUID>, JpaSpecif
            "WHERE d.responsibleCommittee.id = :committeeId")
     boolean existsByResponsibleCommitteeId(@Param("committeeId") UUID committeeId);
 
-       List<Demand> findByResponsibleCommittee_IdAndStatusAndDeletedAtIsNullOrderByPreScoreDescCreatedAtDesc(
+    List<Demand> findByResponsibleCommittee_IdAndStatusAndDeletedAtIsNullOrderByPreScoreDescCreatedAtDesc(
             UUID committeeId,
             String status);
 
-           List<Demand> findByResponsibleCommittee_IdInAndStatusAndDeletedAtIsNullOrderByPreScoreDescCreatedAtDesc(
-                  List<UUID> committeeIds,
-                  String status);
+    List<Demand> findByResponsibleCommittee_IdInAndStatusAndDeletedAtIsNullOrderByPreScoreDescCreatedAtDesc(
+            List<UUID> committeeIds,
+            String status);
+
+    @Query("SELECT d FROM Demand d WHERE d.strategicPlan.id = :planId AND d.status IN :decisions AND d.deletedAt IS NULL")
+    List<Demand> findByStrategicPlanIdAndCommitteeDecisionIn(
+            @Param("planId") UUID planId,
+            @Param("decisions") List<String> decisions);
+
+    @Query("SELECT d FROM Demand d WHERE d.strategicPlan.id = :planId AND d.status IN :statuses AND d.deletedAt IS NULL")
+    List<Demand> findByStrategicPlanIdAndStatusIn(
+            @Param("planId") UUID planId,
+            @Param("statuses") List<String> statuses);
+
+    @Query("SELECT d FROM Demand d WHERE d.strategicPlan.id = :planId AND d.status IN :statuses AND d.deletedAt IS NULL ORDER BY d.portfolioRank")
+    List<Demand> findByStrategicPlanIdAndStatusesOrdered(
+            @Param("planId") UUID planId,
+            @Param("statuses") List<String> statuses);
 }
