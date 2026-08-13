@@ -34,17 +34,17 @@ public class DemandService {
     private static final Set<String> PRIORITY_CODES = Set.of("LOW", "MEDIUM", "HIGH", "CRITICAL");
     private static final Set<String> EFFORT_CODES = Set.of("LOW", "MEDIUM", "HIGH");
     private static final Set<String> STATUS_CODES = Set.of(STATUS_IN_ANALYSIS, STATUS_IN_PRIORITIZATION,
-            "PRIORITIZED", STATUS_IN_STRATEGIC_COMMITTEE, "APPROVED", "REJECTED", "CONVERTED_TO_PROJECT", "ARCHIVED",
+            "PRIORITIZED", STATUS_IN_STRATEGIC_COMMITTEE, "APPROVED", "BACKLOG", "CONVERTED_TO_PROJECT", "ARCHIVED",
             "UNDER_PRIORITIZATION", "READY_FOR_COMMITTEE");
     private static final Set<String> CAPACITY_CODES = Set.of("NOT_ANALYZED", "AVAILABLE", "LIMITED", "UNAVAILABLE");
     private static final Set<String> RISK_CODES = Set.of("NOT_EVALUATED", "LOW", "MEDIUM", "HIGH", "CRITICAL");
     private static final Set<String> APPROVAL_CODES = Set.of("NORMAL", "CONDITIONAL");
-    private static final Set<String> COMMITTEE_CODES = Set.of("APPROVED", "CONDITIONALLY_APPROVED", "REVISION_REQUESTED",
-            "DEFERRED", "REJECTED", "REFERRED_TO_OPERATIONS");
+    private static final Set<String> COMMITTEE_CODES = Set.of("APPROVED", "CONDITIONALLY_APPROVED", "REVISION_REQUESTED", "BACKLOG", "REJECTED");
 
     private final DemandRepository demands;
     private final DemandAttachmentRepository attachments;
     private final DemandHistoryRepository history;
+    private final DemandParticipatingDirectionRepository participatingDirections;
     private final DemandCodeService codeService;
     private final DemandHistoryService historyService;
     private final StrategicPlanService strategicPlans;
@@ -61,6 +61,7 @@ public class DemandService {
     private final DemandPreScoreService preScoreService;
 
     public DemandService(DemandRepository demands, DemandAttachmentRepository attachments, DemandHistoryRepository history,
+            DemandParticipatingDirectionRepository participatingDirections,
             DemandCodeService codeService, DemandHistoryService historyService, StrategicPlanService strategicPlans,
             OperationalPlanService operationalPlans, StrategicPillarService pillars, StrategicObjectiveService objectives,
             ProgramService programs, CommitteeService committees, CommitteeSuggestionService committeeSuggestions,
@@ -70,6 +71,7 @@ public class DemandService {
         this.demands = demands;
         this.attachments = attachments;
         this.history = history;
+        this.participatingDirections = participatingDirections;
         this.codeService = codeService;
         this.historyService = historyService;
         this.strategicPlans = strategicPlans;
@@ -99,6 +101,21 @@ public class DemandService {
             req.attachments().forEach(a -> addAttachment(saved, new AttachmentCreate(a.name(), a.url(), a.contentType()),
                     actorId));
         }
+        if (req.participatingDirections() != null && !req.participatingDirections().isEmpty()) {
+            req.participatingDirections().forEach(pd -> {
+                DemandParticipatingDirection direction = new DemandParticipatingDirection();
+                direction.setDemand(saved);
+                direction.setDirectionName(pd.directionName());
+                direction.setDirectionCode(pd.directionCode());
+                direction.setAreaName(pd.areaName());
+                direction.setAreaCode(pd.areaCode());
+                direction.setParticipationType(pd.participationType());
+                direction.setObservations(pd.observations());
+                direction.setCreatedBy(actor(actorId));
+                direction.setUpdatedBy(actor(actorId));
+                participatingDirections.save(direction);
+            });
+        }
         historyService.log(saved, "CREATED", null, saved.getStatus(), "Demanda criada", actor(actorId), actor(actorId),
                 Map.of("code", saved.getCode()));
         return map(saved);
@@ -109,13 +126,32 @@ public class DemandService {
         Demand demand = entity(id);
         String old = demand.getStatus();
         BigDecimal previousScore = demand.getScoreTotal();
-        String previousDirection = demand.getDirection();
+        String previousDirection = demand.getDirectionCode();
         ScoreRelevantState previousScoreInputs = scoreRelevantState(demand);
         validateReadOnlyScoreFields(req.scoreTotal(), req.portfolioRank(), req.directionRank(), demand, false);
         apply(toCreate(req), demand, false);
         handleScoreRelevantChanges(demand, previousScoreInputs);
         demand.setUpdatedBy(actor(actorId));
         Demand saved = demands.save(demand);
+
+        // Processar direções participantes
+        if (req.participatingDirections() != null) {
+            participatingDirections.deleteByDemandId(id);
+            req.participatingDirections().forEach(pd -> {
+                DemandParticipatingDirection direction = new DemandParticipatingDirection();
+                direction.setDemand(saved);
+                direction.setDirectionName(pd.directionName());
+                direction.setDirectionCode(pd.directionCode());
+                direction.setAreaName(pd.areaName());
+                direction.setAreaCode(pd.areaCode());
+                direction.setParticipationType(pd.participationType());
+                direction.setObservations(pd.observations());
+                direction.setCreatedBy(actor(actorId));
+                direction.setUpdatedBy(actor(actorId));
+                participatingDirections.save(direction);
+            });
+        }
+
         recomputeRanksIfNeeded(previousScore, previousDirection, saved);
         historyService.log(saved, "UPDATED", old, saved.getStatus(), "Demanda atualizada", actor(actorId),
                 actor(actorId), Map.of());
@@ -126,7 +162,7 @@ public class DemandService {
     public DemandResponse patch(UUID id, Patch req, String actorId) {
         Demand d = entity(id);
         BigDecimal previousScore = d.getScoreTotal();
-        String previousDirection = d.getDirection();
+        String previousDirection = d.getDirectionCode();
         ScoreRelevantState previousScoreInputs = scoreRelevantState(d);
         validateReadOnlyScoreFields(req.scoreTotal(), req.portfolioRank(), req.directionRank(), d, false);
         Create merged = mergePatch(d, req);
@@ -135,6 +171,25 @@ public class DemandService {
         handleScoreRelevantChanges(d, previousScoreInputs);
         d.setUpdatedBy(actor(actorId));
         Demand saved = demands.save(d);
+
+        // Processar direções participantes se fornecidas
+        if (req.participatingDirections() != null) {
+            participatingDirections.deleteByDemandId(id);
+            req.participatingDirections().forEach(pd -> {
+                DemandParticipatingDirection direction = new DemandParticipatingDirection();
+                direction.setDemand(saved);
+                direction.setDirectionName(pd.directionName());
+                direction.setDirectionCode(pd.directionCode());
+                direction.setAreaName(pd.areaName());
+                direction.setAreaCode(pd.areaCode());
+                direction.setParticipationType(pd.participationType());
+                direction.setObservations(pd.observations());
+                direction.setCreatedBy(actor(actorId));
+                direction.setUpdatedBy(actor(actorId));
+                participatingDirections.save(direction);
+            });
+        }
+
         recomputeRanksIfNeeded(previousScore, previousDirection, saved);
         historyService.log(saved, "UPDATED", old, saved.getStatus(), "Demanda atualizada parcialmente", actor(actorId),
                 actor(actorId), Map.of());
@@ -145,7 +200,7 @@ public class DemandService {
     public void delete(UUID id, String actorId) {
         Demand d = entity(id);
         BigDecimal previousScore = d.getScoreTotal();
-        String previousDirection = d.getDirection();
+        String previousDirection = d.getDirectionCode();
         String oldStatus = norm(d.getStatus());
         scoreLifecycle.applyStatusTransition(d, oldStatus, "ARCHIVED", "Demanda arquivada por eliminação lógica");
         d.setStatus("ARCHIVED");
@@ -161,15 +216,20 @@ public class DemandService {
     public DemandResponse changeStatus(UUID id, StatusPatch req, String actorId) {
         Demand d = entity(id);
         BigDecimal previousScore = d.getScoreTotal();
-        String previousDirection = d.getDirection();
+        String previousDirection = d.getDirectionCode();
         String from = norm(d.getStatus());
-        String to = norm(req.status());
+        String requestedStatus = norm(req.status());
+        String to = normalizeStatusTransitionTarget(requestedStatus);
         validateStatusValue(to);
         validateTransition(d, from, to, req.reason());
         scoreLifecycle.applyStatusTransition(d, from, to, req.reason());
         d.setStatus(to);
         syncStrategicCommitteeStage(d, from, to);
         d.setUpdatedBy(actor(actorId));
+        if ("CONDITIONALLY_APPROVED".equals(requestedStatus)) {
+            d.setApprovalType("CONDITIONAL");
+            d.setCommitteeDecision("CONDITIONALLY_APPROVED");
+        }
         if ("APPROVED".equals(to) && d.getCommitteeDecision() == null)
             d.setCommitteeDecision("APPROVED");
         if ("REJECTED".equals(to)) {
@@ -237,13 +297,13 @@ public class DemandService {
         demand.setStatus("IN_PRIORITIZATION");
         syncStrategicCommitteeStage(demand, previousStatus, "IN_PRIORITIZATION");
         demand.setUpdatedBy(actor(actorId));
-        
-        scoreLifecycle.applyStatusTransition(demand, previousStatus, "IN_PRIORITIZATION", 
+
+        scoreLifecycle.applyStatusTransition(demand, previousStatus, "IN_PRIORITIZATION",
                 "Status alterado automaticamente ao atribuir comité");
-        
+
         Demand saved = demands.save(demand);
         historyService.log(saved, "COMMITTEE_ASSIGNED", previousStatus, "IN_PRIORITIZATION",
-                "Comité responsável atribuído e status alterado para Em Priorização", 
+                "Comité responsável atribuído e status alterado para Em Priorização",
                 actor(actorId), actor(actorId),
                 Map.of("committeeId", committee.getId().toString()));
         return map(saved);
@@ -281,7 +341,7 @@ public class DemandService {
     public ConvertResponse convertToProject(UUID demandId, ConvertToProject req, String actorId) {
         Demand d = entity(demandId);
         BigDecimal previousScore = d.getScoreTotal();
-        String previousDirection = d.getDirection();
+        String previousDirection = d.getDirectionCode();
         if (!"APPROVED".equals(d.getStatus())) {
             throw domain(HttpStatus.CONFLICT, "DEMAND_NOT_APPROVED", "Somente demandas aprovadas podem ser convertidas",
                     Map.of("status", d.getStatus()));
@@ -311,7 +371,7 @@ public class DemandService {
         Supplier mainSupplier = resolveMainSupplier(program, req.mainSupplierId());
 
         String projectName = firstNonBlank(req.projectName(), d.getTitle());
-        String businessArea = firstNonBlank(req.businessArea(), d.getArea());
+        String businessArea = firstNonBlank(req.businessArea(), d.getAreaCode());
         if (businessArea == null) {
             throw domain(HttpStatus.UNPROCESSABLE_ENTITY, "PROJECT_BUSINESS_AREA_REQUIRED",
                     "businessArea é obrigatório para converter a demanda em projeto", Map.of());
@@ -344,7 +404,7 @@ public class DemandService {
         p.setBusinessArea(businessArea);
         p.setProjectType(projectType);
         p.setResponsibleDirection(req.responsibleDirection() != null
-                ? req.responsibleDirection() : d.getDirection());
+            ? req.responsibleDirection() : d.getDirectionCode());
         p.setResponsibleTeam(req.responsibleTeam());
         p.setProjectManager(projectManager);
         p.setProjectManagerId(req.managerId());
@@ -395,14 +455,14 @@ public class DemandService {
     }
 
     @Transactional
-    public PagedDemandsResponse listPortfolioRanked(int page, int size, String direction, String area) {
+    public PagedDemandsResponse listPortfolioRanked(int page, int size, String directionCode, String areaCode) {
         Specification<Demand> spec = (root, query, cb) -> cb.and(
                 cb.isNull(root.get("deletedAt")),
                 cb.isNotNull(root.get("portfolioRank")));
-        if (direction != null && !direction.isBlank())
-            spec = spec.and((r, q, cb) -> cb.like(cb.lower(r.get("direction")), "%" + direction.toLowerCase(Locale.ROOT) + "%"));
-        if (area != null && !area.isBlank())
-            spec = spec.and((r, q, cb) -> cb.like(cb.lower(r.get("area")), "%" + area.toLowerCase(Locale.ROOT) + "%"));
+        if (directionCode != null && !directionCode.isBlank())
+            spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("directionCode")), directionCode.trim().toUpperCase(Locale.ROOT)));
+        if (areaCode != null && !areaCode.isBlank())
+            spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("areaCode")), areaCode.trim().toUpperCase(Locale.ROOT)));
         Page<Demand> p = demands.findAll(spec, PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "portfolioRank")));
         return new PagedDemandsResponse(p.getContent().stream().map(this::map).toList(), page, size, p.getTotalElements(),
                 p.getTotalPages());
@@ -422,7 +482,10 @@ public class DemandService {
                     cb.like(cb.lower(root.get("title")), like),
                     cb.like(cb.lower(root.get("description")), like),
                     cb.like(cb.lower(root.get("requester")), like),
-                    cb.like(cb.lower(root.get("area")), like),
+                    cb.like(cb.lower(root.get("areaName")), like),
+                    cb.like(cb.lower(root.get("directionName")), like),
+                    cb.like(cb.lower(root.get("areaCode")), like),
+                    cb.like(cb.lower(root.get("directionCode")), like),
                     cb.like(cb.lower(root.get("easyVistaRef")), like)));
         }
         if (status != null && !status.isEmpty()) {
@@ -457,7 +520,7 @@ public class DemandService {
         if (requester != null)
             spec = spec.and((r, q, cb) -> cb.like(cb.lower(r.get("requester")), "%" + requester.toLowerCase() + "%"));
         if (businessArea != null)
-            spec = spec.and((r, q, cb) -> cb.like(cb.lower(r.get("area")), "%" + businessArea.toLowerCase() + "%"));
+            spec = spec.and((r, q, cb) -> cb.like(cb.lower(r.get("areaName")), "%" + businessArea.toLowerCase() + "%"));
         if (createdFrom != null) {
             Instant from = createdFrom.atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
             spec = spec.and((r, q, cb) -> cb.greaterThanOrEqualTo(r.get("createdAt"), from));
@@ -505,8 +568,11 @@ public class DemandService {
         d.setTitle(req.title());
         d.setDescription(req.description());
         d.setRequester(req.requester());
-        d.setArea(req.area());
-        d.setDirection(req.direction());
+        d.setAreaName(req.areaName());
+        d.setAreaCode(req.areaCode());
+        d.setDirectionName(req.directionName());
+        d.setDirectionCode(req.directionCode());
+        d.setDirectionParticipationType(req.directionParticipationType());
         d.setSponsor(req.sponsor());
         d.setType(req.typeId() == null ? null : lookups.requireActiveInCategory(req.typeId(), "DEMAND_TYPE"));
         d.setOrigin(normalizedOrigin);
@@ -534,7 +600,7 @@ public class DemandService {
         d.setRiskStatus(req.riskStatus() == null ? "NOT_EVALUATED" : norm(req.riskStatus()));
         d.setRisksIdentified(req.risksIdentified());
         d.setDependenciesIdentified(req.dependenciesIdentified());
-       
+
         d.setApprovalType(req.approvalType() == null ? null : norm(req.approvalType()));
         d.setCommitteeDecision(req.committeeDecision() == null ? null : norm(req.committeeDecision()));
         d.setRejectionReason(req.rejectionReason());
@@ -543,7 +609,7 @@ public class DemandService {
             d.setStatus(STATUS_IN_ANALYSIS);
 
         validateBusinessRules(d);
-        
+
         // Calcular pré-score automaticamente
         preScoreService.calculate(d);
     }
@@ -582,7 +648,7 @@ public class DemandService {
                     "Objetivo não pertence ao pilar informado", Map.of());
         }
 
-        
+
     }
 
     private void validateLookupOrEnum(String category, String code, Set<String> fallback) {
@@ -671,6 +737,10 @@ public class DemandService {
                 .map(a -> new DemandAttachmentResponse(a.getId(), a.getName(), a.getUrl(), a.getContentType(),
                         a.getCreatedAt(), a.getCreatedBy()))
                 .toList();
+        List<ParticipatingDirectionResponse> participatingDirs = participatingDirections
+                .findByDemandIdOrderByCreatedAtAsc(d.getId()).stream()
+                .map(this::mapParticipatingDirection)
+                .toList();
         String typeCode = d.getType() != null ? d.getType().getCode() : null;
         String domainCode = d.getDomain() != null ? d.getDomain().getCode() : null;
         LookupValueSummary typeData = mapLookupValue(d.getType());
@@ -684,8 +754,8 @@ public class DemandService {
         CommitteeSummary committee = responsibleCommittee;
         ProjectSummary convertedProject = mapProject(d.getConvertedProject());
         DemandScoringResponse calculatedScoring = scoringService.getByDemand(d.getId());
-        return new DemandResponse(d.getId(), d.getCode(), d.getTitle(), d.getDescription(), d.getRequester(), d.getArea(),
-                d.getDirection(), d.getSponsor(), d.getTypeId(), typeCode, d.getOrigin(), d.getEasyVistaRef(),
+        return new DemandResponse(d.getId(), d.getCode(), d.getTitle(), d.getDescription(), d.getRequester(), d.getAreaName(),
+            d.getAreaCode(), d.getDirectionName(), d.getDirectionCode(), d.getDirectionParticipationType(), d.getSponsor(), d.getTypeId(), typeCode, d.getOrigin(), d.getEasyVistaRef(),
                 d.getStrategicPlanId(),
                 d.getOperationalPlanId(), d.getStrategicPillarId(), d.getStrategicObjectiveId(), d.getProgramId(),
                 d.getCommitteeId(), d.getResponsibleCommitteeId(),
@@ -704,7 +774,7 @@ public class DemandService {
                 d.getConvertedProjectId(), d.getCreatedAt(), d.getCreatedBy(), d.getUpdatedAt(), d.getUpdatedBy(),
                 d.getVersion(), typeData, domainData, strategicPlan, operationalPlan, strategicPillar,
                 strategicObjective, program, committee, responsibleCommittee,
-                convertedProject, att, calculatedScoring);
+                convertedProject, att, participatingDirs, calculatedScoring);
     }
 
     private LookupValueSummary mapLookupValue(LookupValue value) {
@@ -874,7 +944,7 @@ public class DemandService {
     private void recomputeRanksIfNeeded(BigDecimal previousScore, String previousDirection, Demand demand) {
         boolean leftRanking = previousScore != null && demand.getScoreTotal() == null;
         boolean changedDirection = previousScore != null && demand.getScoreTotal() != null
-                && !Objects.equals(normalizeDirection(previousDirection), normalizeDirection(demand.getDirection()));
+                && !Objects.equals(normalizeDirection(previousDirection), normalizeDirection(demand.getDirectionCode()));
         if (leftRanking || changedDirection) {
             scoringService.recomputeRanks();
         }
@@ -953,8 +1023,11 @@ public class DemandService {
                 p.title() != null ? p.title() : d.getTitle(),
                 p.description() != null ? p.description() : d.getDescription(),
                 p.requester() != null ? p.requester() : d.getRequester(),
-                p.area() != null ? p.area() : d.getArea(),
-                p.direction() != null ? p.direction() : d.getDirection(),
+                p.areaName() != null ? p.areaName() : d.getAreaName(),
+                p.areaCode() != null ? p.areaCode() : d.getAreaCode(),
+                p.directionName() != null ? p.directionName() : d.getDirectionName(),
+                p.directionCode() != null ? p.directionCode() : d.getDirectionCode(),
+                p.directionParticipationType() != null ? p.directionParticipationType() : d.getDirectionParticipationType(),
                 p.sponsor() != null ? p.sponsor() : d.getSponsor(),
                 p.typeId() != null ? p.typeId() : d.getTypeId(),
                 p.origin() != null ? p.origin() : d.getOrigin(),
@@ -985,18 +1058,19 @@ public class DemandService {
                 p.approvalType() != null ? p.approvalType() : d.getApprovalType(),
                 p.committeeDecision() != null ? p.committeeDecision() : d.getCommitteeDecision(),
                 p.rejectionReason() != null ? p.rejectionReason() : d.getRejectionReason(),
-                null);
+                null,
+                p.participatingDirections());
     }
 
     private Create toCreate(Update u) {
-        return new Create(u.title(), u.description(), u.requester(), u.area(), u.direction(), u.sponsor(), u.typeId(),
+        return new Create(u.title(), u.description(), u.requester(), u.areaName(), u.areaCode(), u.directionName(), u.directionCode(), u.directionParticipationType(), u.sponsor(), u.typeId(),
                 u.origin(), u.easyVistaRef(), u.strategicPlanId(), u.operationalPlanId(), u.strategicPillarId(),
             u.strategicObjectiveId(), u.programId(), u.committeeId(), u.domainId(), u.impactedSystem(), u.initialPriority(),
                 u.estimatedEffort(), u.expectedImpact(), u.expectedBenefit(), u.urgency(), u.estimatedBudget(),
                 u.desiredDate(), u.notes(), u.capacityStatus(), u.riskStatus(), u.risksIdentified(),
                 u.dependenciesIdentified(), u.scoreTotal(),
                 u.portfolioRank(), u.directionRank(), u.approvalType(), u.committeeDecision(), u.rejectionReason(),
-                null);
+                null, u.participatingDirections());
     }
 
     private Priority mapPriority(String value) {
@@ -1029,11 +1103,210 @@ public class DemandService {
         return normalized;
     }
 
+    private String normalizeStatusTransitionTarget(String requestedStatus) {
+        if ("CONDITIONALLY_APPROVED".equals(requestedStatus)) {
+            return "APPROVED";
+        }
+        return requestedStatus;
+    }
+
     private String actor(String value) {
         return value == null || value.isBlank() ? "system" : value;
     }
 
     private DomainException domain(HttpStatus status, String code, String message, Map<String, Object> details) {
         return new DomainException(status, code, message, details);
+    }
+
+    @Transactional
+    public ReprioritizePortfolioRankResponse reprioritizePortfolioRank(UUID id, ReprioritizePortfolioRankRequest req, String actorId) {
+        Demand demand = entity(id);
+
+        // Validar se está aprovada ou aprovada condicionada
+        String status = norm(demand.getStatus());
+        if (!("APPROVED".equals(status) || "CONDITIONALLY_APPROVED".equals(norm(demand.getCommitteeDecision())))) {
+            throw domain(HttpStatus.CONFLICT, "DEMAND_NOT_APPROVED_FOR_REPRIORITIZATION",
+                    "Apenas demandas aprovadas ou aprovadas condicionalmente podem ser repriorizadas",
+                    Map.of("status", status, "committeeDecision", demand.getCommitteeDecision()));
+        }
+
+        // Buscar todas as demandas aprovadas/condicionadas não convertidas, não arquivadas
+        List<Demand> approvedDemands = demands.findAll((root, query, cb) -> cb.and(
+                cb.isNull(root.get("deletedAt")),
+                cb.isNull(root.get("convertedProject")),
+                cb.or(
+                    cb.equal(cb.lower(root.get("status")), "approved"),
+                    cb.equal(cb.lower(root.get("committeeDecision")), "conditionally_approved")
+                ),
+                cb.isNotNull(root.get("portfolioRank"))
+        ));
+
+        // Ordenar por portfolioRank
+        approvedDemands.sort(Comparator.comparingInt(d -> d.getPortfolioRank() != null ? d.getPortfolioRank() : Integer.MAX_VALUE));
+
+        // Validar newPosition
+        int newPosition = req.newPosition();
+        if (newPosition < 1 || newPosition > approvedDemands.size()) {
+            throw new BadRequestException("newPosition deve estar entre 1 e " + approvedDemands.size());
+        }
+
+        Integer currentRank = demand.getPortfolioRank();
+        if (currentRank != null && currentRank == newPosition) {
+            throw new BadRequestException("newPosition não pode ser igual ao portfolioRank atual");
+        }
+
+        // Guardar ranks anteriores para o response
+        Map<UUID, Integer> previousRanks = new HashMap<>();
+        for (Demand d : approvedDemands) {
+            previousRanks.put(d.getId(), d.getPortfolioRank());
+        }
+
+        // Remover a demanda da lista atual se já está ranqueada
+        approvedDemands.removeIf(d -> d.getId().equals(id));
+
+        // Inserir na nova posição (0-based index)
+        approvedDemands.add(newPosition - 1, demand);
+
+        // Recalcular ranks sequencialmente
+        for (int i = 0; i < approvedDemands.size(); i++) {
+            approvedDemands.get(i).setPortfolioRank(i + 1);
+        }
+
+        // Guardar motivo, justificação, utilizador e data
+        demand.setReprioritizationReason(req.reprioritizationReason());
+        demand.setReprioritizationJustification(req.reprioritizationJustification());
+        demand.setReprioritizedAt(Instant.now());
+        demand.setReprioritizedBy(actor(actorId));
+        demand.setUpdatedBy(actor(actorId));
+
+        // Salvar todas as demandas
+        demands.saveAll(approvedDemands);
+
+        // Guardar histórico
+        historyService.log(demand, "PORTFOLIO_RANK_CHANGED", status, status,
+                "Ranking global repriorizado: " + previousRanks.get(id) + " → " + newPosition,
+                actor(actorId), actor(actorId),
+                Map.of("previousRank", previousRanks.get(id).toString(), "newRank", String.valueOf(newPosition),
+                       "reason", req.reprioritizationReason()));
+
+        // Preparar lista de demandas afetadas
+        List<RankedDemandInfo> affectedDemands = approvedDemands.stream()
+                .filter(d -> !d.getId().equals(id))
+                .map(d -> new RankedDemandInfo(d.getId(), d.getCode(), d.getTitle(),
+                        previousRanks.get(d.getId()), d.getPortfolioRank()))
+                .toList();
+
+        // Retornar resposta
+        return new ReprioritizePortfolioRankResponse(
+                demand.getId(),
+                demand.getCode(),
+                demand.getTitle(),
+                previousRanks.get(id),
+                demand.getPortfolioRank(),
+                status,
+                req.reprioritizationReason(),
+                req.reprioritizationJustification(),
+                demand.getReprioritizedAt(),
+                demand.getReprioritizedBy(),
+                affectedDemands
+        );
+    }
+
+    @Transactional
+    public List<ParticipatingDirectionResponse> listParticipatingDirections(UUID demandId) {
+        entity(demandId);
+        return participatingDirections.findByDemandIdOrderByCreatedAtAsc(demandId).stream()
+                .map(this::mapParticipatingDirection)
+                .toList();
+    }
+
+    @Transactional
+    public ParticipatingDirectionResponse addParticipatingDirection(UUID demandId, ParticipatingDirectionCreate req, String actorId) {
+        Demand demand = entity(demandId);
+
+        DemandParticipatingDirection pd = new DemandParticipatingDirection();
+        pd.setDemand(demand);
+        pd.setDirectionName(req.directionName());
+        pd.setDirectionCode(req.directionCode());
+        pd.setAreaName(req.areaName());
+        pd.setAreaCode(req.areaCode());
+        pd.setParticipationType(req.participationType());
+        pd.setObservations(req.observations());
+        pd.setCreatedBy(actor(actorId));
+        pd.setUpdatedBy(actor(actorId));
+
+        DemandParticipatingDirection saved = participatingDirections.save(pd);
+
+        historyService.log(demand, "PARTICIPATING_DIRECTION_ADDED", null, null,
+            "Direção participante adicionada: " + req.directionName(),
+                actor(actorId), actor(actorId),
+            Map.of("directionName", req.directionName(), "directionCode", req.directionCode(), "participationType", req.participationType().name()));
+
+        return mapParticipatingDirection(saved);
+    }
+
+    @Transactional
+    public ParticipatingDirectionResponse updateParticipatingDirection(UUID demandId, UUID directionId,
+            ParticipatingDirectionUpdate req, String actorId) {
+        Demand demand = entity(demandId);
+        DemandParticipatingDirection pd = participatingDirections.findById(directionId)
+                .orElseThrow(() -> new ResourceNotFoundException("Direção participante não encontrada: " + directionId));
+
+        if (!pd.getDemand().getId().equals(demandId)) {
+            throw new BadRequestException("Direção participante não pertence à demanda informada");
+        }
+
+        pd.setDirectionName(req.directionName());
+        pd.setDirectionCode(req.directionCode());
+        pd.setAreaName(req.areaName());
+        pd.setAreaCode(req.areaCode());
+        pd.setParticipationType(req.participationType());
+        pd.setObservations(req.observations());
+        pd.setUpdatedBy(actor(actorId));
+
+        DemandParticipatingDirection saved = participatingDirections.save(pd);
+
+        historyService.log(demand, "PARTICIPATING_DIRECTION_UPDATED", null, null,
+            "Direção participante atualizada: " + req.directionName(),
+                actor(actorId), actor(actorId),
+                Map.of("directionId", directionId.toString()));
+
+        return mapParticipatingDirection(saved);
+    }
+
+    @Transactional
+    public void deleteParticipatingDirection(UUID demandId, UUID directionId, String actorId) {
+        Demand demand = entity(demandId);
+        DemandParticipatingDirection pd = participatingDirections.findById(directionId)
+                .orElseThrow(() -> new ResourceNotFoundException("Direção participante não encontrada: " + directionId));
+
+        if (!pd.getDemand().getId().equals(demandId)) {
+            throw new BadRequestException("Direção participante não pertence à demanda informada");
+        }
+
+        String directionCode = pd.getDirectionCode();
+        participatingDirections.delete(pd);
+
+        historyService.log(demand, "PARTICIPATING_DIRECTION_DELETED", null, null,
+                "Direção participante removida: " + directionCode,
+                actor(actorId), actor(actorId),
+                Map.of("directionId", directionId.toString()));
+    }
+
+    private ParticipatingDirectionResponse mapParticipatingDirection(DemandParticipatingDirection pd) {
+        return new ParticipatingDirectionResponse(
+                pd.getId(),
+            pd.getDirectionName(),
+                pd.getDirectionCode(),
+            pd.getAreaName(),
+                pd.getAreaCode(),
+                pd.getParticipationType(),
+                pd.getObservations(),
+                pd.getCreatedAt(),
+                pd.getCreatedBy(),
+                pd.getUpdatedAt(),
+                pd.getUpdatedBy(),
+                pd.getVersion()
+        );
     }
 }

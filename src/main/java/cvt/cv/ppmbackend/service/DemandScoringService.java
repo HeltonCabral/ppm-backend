@@ -265,7 +265,7 @@ public class DemandScoringService {
 
         for (Demand rankedDemand : rankedDemands) {
             rankedDemand.setPortfolioRank(portfolioRank++);
-            String directionKey = normalizeDirection(rankedDemand.getDirection());
+            String directionKey = normalizeDirectionCode(rankedDemand.getDirectionCode());
             rankedDemand.setDirectionRank(directionKey == null
                     ? null
                     : nextRankByDirection.merge(directionKey, 1, Integer::sum));
@@ -276,11 +276,11 @@ public class DemandScoringService {
         }
     }
 
-    private String normalizeDirection(String direction) {
-        if (direction == null || direction.isBlank()) {
+    private String normalizeDirectionCode(String directionCode) {
+        if (directionCode == null || directionCode.isBlank()) {
             return null;
         }
-        return direction.trim().toUpperCase(Locale.ROOT);
+        return directionCode.trim().toUpperCase(Locale.ROOT);
     }
 
     private BigDecimal normalizedScore(ScoringCriterion criterion, BigDecimal score) {

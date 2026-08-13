@@ -1,0 +1,12 @@
+package cvt.cv.ppmbackend.enums;
+
+public enum ReprioritizationReason {
+    CRITICAL_DEPENDENCY,
+    HIGHER_STRATEGIC_IMPACT,
+    REGULATORY_URGENCY,
+    BUDGET_CONSTRAINT,
+    CAPACITY_CONSTRAINT,
+    CURRENT_CYCLE_ALIGNMENT,
+    COMMITTEE_DECISION,
+    OTHER
+}

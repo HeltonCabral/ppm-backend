@@ -1,8 +1,10 @@
 package cvt.cv.ppmbackend.dto;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import cvt.cv.ppmbackend.enums.DirectionParticipationType;
 import cvt.cv.ppmbackend.enums.PlanType;
 import cvt.cv.ppmbackend.enums.Priority;
+import cvt.cv.ppmbackend.validation.ValidReprioritizeRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
@@ -30,8 +32,11 @@ public final class DemandDtos {
                         @NotBlank @Size(max = 250) String title,
                         @Size(max = 10000) String description,
                         @Size(max = 150) String requester,
-                        @Size(max = 120) String area,
-                        @Size(max = 120) String direction,
+                        @Size(max = 120) String areaName,
+                        @Size(max = 60) String areaCode,
+                        @Size(max = 120) String directionName,
+                        @Size(max = 60) String directionCode,
+                        DirectionParticipationType directionParticipationType,
                         @Size(max = 150) String sponsor,
                         @NotNull UUID typeId,
                         @Size(max = 80) String origin,
@@ -56,22 +61,26 @@ public final class DemandDtos {
                         @Size(max = 40) String riskStatus,
                         @Size(max = 10000) String risksIdentified,
                         @Size(max = 10000) String dependenciesIdentified,
-                       
+
                         BigDecimal scoreTotal,
                         @PositiveOrZero Integer portfolioRank,
                         @PositiveOrZero Integer directionRank,
                         @Size(max = 40) String approvalType,
                         @Size(max = 60) String committeeDecision,
                         @Size(max = 10000) String rejectionReason,
-                        @Valid List<AttachmentInput> attachments) {
+                        @Valid List<AttachmentInput> attachments,
+                        @Valid List<ParticipatingDirectionCreate> participatingDirections) {
         }
 
         public record Update(
                         @NotBlank @Size(max = 250) String title,
                         @Size(max = 10000) String description,
                         @Size(max = 150) String requester,
-                        @Size(max = 120) String area,
-                        @Size(max = 120) String direction,
+                        @Size(max = 120) String areaName,
+                        @Size(max = 60) String areaCode,
+                        @Size(max = 120) String directionName,
+                        @Size(max = 60) String directionCode,
+                        DirectionParticipationType directionParticipationType,
                         @Size(max = 150) String sponsor,
                         @NotNull UUID typeId,
                         @Size(max = 80) String origin,
@@ -96,21 +105,25 @@ public final class DemandDtos {
                         @Size(max = 40) String riskStatus,
                         @Size(max = 10000) String risksIdentified,
                         @Size(max = 10000) String dependenciesIdentified,
-                       
+
                         BigDecimal scoreTotal,
                         @PositiveOrZero Integer portfolioRank,
                         @PositiveOrZero Integer directionRank,
                         @Size(max = 40) String approvalType,
                         @Size(max = 60) String committeeDecision,
-                        @Size(max = 10000) String rejectionReason) {
+                        @Size(max = 10000) String rejectionReason,
+                        @Valid List<ParticipatingDirectionCreate> participatingDirections) {
         }
 
         public record Patch(
                         @Size(max = 250) String title,
                         @Size(max = 10000) String description,
                         @Size(max = 150) String requester,
-                        @Size(max = 120) String area,
-                        @Size(max = 120) String direction,
+                        @Size(max = 120) String areaName,
+                        @Size(max = 60) String areaCode,
+                        @Size(max = 120) String directionName,
+                        @Size(max = 60) String directionCode,
+                        DirectionParticipationType directionParticipationType,
                         @Size(max = 150) String sponsor,
                         UUID typeId,
                         @Size(max = 80) String origin,
@@ -135,13 +148,14 @@ public final class DemandDtos {
                         @Size(max = 40) String riskStatus,
                         @Size(max = 10000) String risksIdentified,
                         @Size(max = 10000) String dependenciesIdentified,
-                        
+
                         BigDecimal scoreTotal,
                         @PositiveOrZero Integer portfolioRank,
                         @PositiveOrZero Integer directionRank,
                         @Size(max = 40) String approvalType,
                         @Size(max = 60) String committeeDecision,
-                        @Size(max = 10000) String rejectionReason) {
+                        @Size(max = 10000) String rejectionReason,
+                        @Valid List<ParticipatingDirectionCreate> participatingDirections) {
         }
 
         public record StatusPatch(@NotBlank @Size(max = 50) String status, @Size(max = 4000) String reason) {
@@ -234,8 +248,11 @@ public final class DemandDtos {
                         String title,
                         String description,
                         String requester,
-                        String area,
-                        String direction,
+                        String areaName,
+                        String areaCode,
+                        String directionName,
+                        String directionCode,
+                        DirectionParticipationType directionParticipationType,
                         String sponsor,
                         UUID typeId,
                         String type,
@@ -297,6 +314,7 @@ public final class DemandDtos {
                         CommitteeSummary responsibleCommittee,
                         ProjectSummary convertedProject,
                         List<DemandAttachmentResponse> attachments,
+                        List<ParticipatingDirectionResponse> participatingDirections,
                         DemandScoringResponse calculatedScoring) {
         }
 
@@ -359,5 +377,68 @@ public final class DemandDtos {
                         BigDecimal budget,
                         PlanType planType,
                         String delayReasons) {
+        }
+
+        @ValidReprioritizeRequest
+        public record ReprioritizePortfolioRankRequest(
+                        @NotNull(message = "newPosition é obrigatório") @PositiveOrZero Integer newPosition,
+                        @NotBlank(message = "reprioritizationReason é obrigatório") @Size(max = 80) String reprioritizationReason,
+                       // @Size(min = 10, max = 10000, message = "reprioritizationJustification deve ter entre 10 e 10000 caracteres")
+                        String reprioritizationJustification) {
+        }
+
+        public record ReprioritizePortfolioRankResponse(
+                        UUID id,
+                        String code,
+                        String title,
+                        Integer previousPortfolioRank,
+                        Integer newPortfolioRank,
+                        String status,
+                        String reprioritizationReason,
+                        String reprioritizationJustification,
+                        Instant reprioritizedAt,
+                        String reprioritizedBy,
+                        List<RankedDemandInfo> affectedDemands) {
+        }
+
+        public record RankedDemandInfo(
+                        UUID id,
+                        String code,
+                        String title,
+                        Integer previousPortfolioRank,
+                        Integer newPortfolioRank) {
+        }
+
+        public record ParticipatingDirectionCreate(
+                        @NotBlank @Size(max = 120) String directionName,
+                        @NotBlank @Size(max = 60) String directionCode,
+                        @Size(max = 120) String areaName,
+                        @Size(max = 60) String areaCode,
+                        @NotNull DirectionParticipationType participationType,
+                        @Size(max = 10000) String observations) {
+        }
+
+        public record ParticipatingDirectionUpdate(
+                        @NotBlank @Size(max = 120) String directionName,
+                        @NotBlank @Size(max = 60) String directionCode,
+                        @Size(max = 120) String areaName,
+                        @Size(max = 60) String areaCode,
+                        @NotNull DirectionParticipationType participationType,
+                        @Size(max = 10000) String observations) {
+        }
+
+        public record ParticipatingDirectionResponse(
+                        UUID id,
+                        String directionName,
+                        String directionCode,
+                        String areaName,
+                        String areaCode,
+                        DirectionParticipationType participationType,
+                        String observations,
+                        Instant createdAt,
+                        String createdBy,
+                        Instant updatedAt,
+                        String updatedBy,
+                        Long version) {
         }
 }

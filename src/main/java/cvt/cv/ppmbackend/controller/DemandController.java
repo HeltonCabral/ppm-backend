@@ -65,9 +65,9 @@ public class DemandController {
     public PagedDemandsResponse listPortfolioRanked(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(required = false) String direction,
-            @RequestParam(required = false) String area) {
-        return demands.listPortfolioRanked(page, size, direction, area);
+            @RequestParam(required = false) String directionCode,
+            @RequestParam(required = false) String areaCode) {
+        return demands.listPortfolioRanked(page, size, directionCode, areaCode);
     }
 
     
@@ -175,5 +175,41 @@ public class DemandController {
     public PreScoreResponse calculatePreScore(@PathVariable UUID id,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
         return demands.calculatePreScore(id, actor(user));
+    }
+
+    @PostMapping("/{id}/reprioritize-portfolio-rank")
+    public ReprioritizePortfolioRankResponse reprioritizePortfolioRank(@PathVariable UUID id,
+            @Valid @RequestBody ReprioritizePortfolioRankRequest req,
+            @RequestHeader(value = "X-User-Id", required = false) String user) {
+        return demands.reprioritizePortfolioRank(id, req, actor(user));
+    }
+
+    @GetMapping("/{id}/participating-directions")
+    public List<ParticipatingDirectionResponse> listParticipatingDirections(@PathVariable UUID id) {
+        return demands.listParticipatingDirections(id);
+    }
+
+    @PostMapping("/{id}/participating-directions")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ParticipatingDirectionResponse addParticipatingDirection(@PathVariable UUID id,
+            @Valid @RequestBody ParticipatingDirectionCreate req,
+            @RequestHeader(value = "X-User-Id", required = false) String user) {
+        return demands.addParticipatingDirection(id, req, actor(user));
+    }
+
+    @PutMapping("/{id}/participating-directions/{directionId}")
+    public ParticipatingDirectionResponse updateParticipatingDirection(@PathVariable UUID id,
+            @PathVariable UUID directionId,
+            @Valid @RequestBody ParticipatingDirectionUpdate req,
+            @RequestHeader(value = "X-User-Id", required = false) String user) {
+        return demands.updateParticipatingDirection(id, directionId, req, actor(user));
+    }
+
+    @DeleteMapping("/{id}/participating-directions/{directionId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteParticipatingDirection(@PathVariable UUID id,
+            @PathVariable UUID directionId,
+            @RequestHeader(value = "X-User-Id", required = false) String user) {
+        demands.deleteParticipatingDirection(id, directionId, actor(user));
     }
 }

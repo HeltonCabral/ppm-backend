@@ -99,7 +99,7 @@ class CommitteeSuggestionServiceTest {
 
     private Demand demand() {
         Demand demand = new Demand();
-        demand.setDirection("Financeira");
+        demand.setDirectionCode("Financeira");
         demand.setRiskStatus("HIGH");
         demand.setEstimatedBudget(new BigDecimal("5000.00"));
 

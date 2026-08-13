@@ -70,7 +70,7 @@ public class CommitteeSuggestionService {
         int score = 0;
         List<String> reasons = new ArrayList<>();
 
-        if (matches(committee.getDirections(), demand.getDirection())) {
+        if (matches(committee.getDirections(), demand.getDirectionCode())) {
             score += 20;
             reasons.add(DIRECTION_REASON);
         }
