@@ -8,7 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/committee-decisions")
+@RequestMapping("/committee-decisions")
 public class CommitteeDecisionController {
 
     private final CommitteeDecisionService committeeDecisionService;

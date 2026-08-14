@@ -1,2 +1,0 @@
-ALTER TABLE committees
-    ADD COLUMN IF NOT EXISTS is_strategic_committee BOOLEAN NOT NULL DEFAULT FALSE;

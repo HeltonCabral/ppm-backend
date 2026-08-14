@@ -39,7 +39,7 @@ public class DemandService {
     private static final Set<String> CAPACITY_CODES = Set.of("NOT_ANALYZED", "AVAILABLE", "LIMITED", "UNAVAILABLE");
     private static final Set<String> RISK_CODES = Set.of("NOT_EVALUATED", "LOW", "MEDIUM", "HIGH", "CRITICAL");
     private static final Set<String> APPROVAL_CODES = Set.of("NORMAL", "CONDITIONAL");
-    private static final Set<String> COMMITTEE_CODES = Set.of("APPROVED", "CONDITIONALLY_APPROVED", "REVISION_REQUESTED", "BACKLOG", "REJECTED");
+    private static final Set<String> COMMITTEE_CODES = Set.of("APPROVED", "CONDITIONALLY_APPROVED", "REVISION_REQUESTED", "BACKLOG");
 
     private final DemandRepository demands;
     private final DemandAttachmentRepository attachments;
@@ -232,11 +232,11 @@ public class DemandService {
         }
         if ("APPROVED".equals(to) && d.getCommitteeDecision() == null)
             d.setCommitteeDecision("APPROVED");
-        if ("REJECTED".equals(to)) {
-            d.setCommitteeDecision("REJECTED");
+        if ("BACKLOG".equals(to)) {
+            d.setCommitteeDecision("BACKLOG");
             d.setRejectionReason(req.reason());
         }
-        if (STATUS_IN_ANALYSIS.equals(to) && "REJECTED".equals(from)) {
+        if (STATUS_IN_ANALYSIS.equals(to) && "BACKLOG".equals(from)) {
             d.setCommitteeDecision(null);
             d.setRejectionReason(null);
         }
@@ -678,16 +678,16 @@ public class DemandService {
                     Map.of("from", from, "to", to));
         }
         Map<String, Set<String>> next = new HashMap<>();
-        next.put(STATUS_IN_ANALYSIS, Set.of(STATUS_IN_PRIORITIZATION, "REJECTED", "ARCHIVED"));
-        next.put(STATUS_IN_PRIORITIZATION, Set.of("PRIORITIZED", "REJECTED", "ARCHIVED", STATUS_IN_ANALYSIS));
+        next.put(STATUS_IN_ANALYSIS, Set.of(STATUS_IN_PRIORITIZATION, "BACKLOG", "ARCHIVED"));
+        next.put(STATUS_IN_PRIORITIZATION, Set.of("PRIORITIZED", "BACKLOG", "ARCHIVED", STATUS_IN_ANALYSIS));
         next.put("PRIORITIZED", Set.of(STATUS_IN_STRATEGIC_COMMITTEE, "ARCHIVED"));
         next.put(STATUS_IN_STRATEGIC_COMMITTEE,
-            Set.of("APPROVED", "REJECTED", STATUS_IN_ANALYSIS, STATUS_IN_PRIORITIZATION, "ARCHIVED"));
-        next.put("UNDER_PRIORITIZATION", Set.of("PRIORITIZED", "READY_FOR_COMMITTEE", "REJECTED", "ARCHIVED", STATUS_IN_ANALYSIS));
+            Set.of("APPROVED", "BACKLOG", STATUS_IN_ANALYSIS, STATUS_IN_PRIORITIZATION, "ARCHIVED"));
+        next.put("UNDER_PRIORITIZATION", Set.of("PRIORITIZED", "READY_FOR_COMMITTEE", "BACKLOG", "ARCHIVED", STATUS_IN_ANALYSIS));
         next.put("READY_FOR_COMMITTEE",
-            Set.of("APPROVED", "REJECTED", STATUS_IN_ANALYSIS, STATUS_IN_PRIORITIZATION, "UNDER_PRIORITIZATION", "ARCHIVED"));
+            Set.of("APPROVED", "BACKLOG", STATUS_IN_ANALYSIS, STATUS_IN_PRIORITIZATION, "UNDER_PRIORITIZATION", "ARCHIVED"));
         next.put("APPROVED", Set.of("CONVERTED_TO_PROJECT", "ARCHIVED"));
-        next.put("REJECTED", Set.of(STATUS_IN_ANALYSIS, "ARCHIVED"));
+        next.put("BACKLOG", Set.of(STATUS_IN_ANALYSIS, "ARCHIVED"));
         next.put("CONVERTED_TO_PROJECT", Set.of("ARCHIVED"));
         next.put("ARCHIVED", Set.of());
 
@@ -701,7 +701,7 @@ public class DemandService {
             validateCommitteeReadiness(demand);
         }
 
-        if (("REJECTED".equals(to) || "ARCHIVED".equals(to)) && (reason == null || reason.isBlank())) {
+        if (("BACKLOG".equals(to) || "ARCHIVED".equals(to)) && (reason == null || reason.isBlank())) {
             throw new BadRequestException("reason é obrigatório para status " + to);
         }
     }
@@ -711,7 +711,7 @@ public class DemandService {
             case "PRIORITIZED", "READY_FOR_COMMITTEE" -> "SUBMITTED_TO_COMMITTEE";
             case STATUS_IN_STRATEGIC_COMMITTEE -> "SENT_TO_STRATEGIC_COMMITTEE";
             case "APPROVED" -> "APPROVED";
-            case "REJECTED" -> "REJECTED";
+            case "BACKLOG" -> "BACKLOG";
             default -> "STATUS_CHANGED";
         };
     }

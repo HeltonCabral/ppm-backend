@@ -19,7 +19,7 @@ import java.util.*;
 public class CommitteeDecisionService {
 
     private static final Set<String> VALID_DECISIONS = Set.of(
-            "APPROVE", "CONDITIONALLY_APPROVE", "REVISION_REQUESTED", "BACKLOG");
+            "APPROVED", "CONDITIONALLY_APPROVE", "REVISION_REQUESTED", "BACKLOG");
 
     private static final Set<String> ELIGIBLE_STATUSES = Set.of(
             "IN_STRATEGIC_COMMITTEE", "READY_FOR_COMMITTEE", "PRIORITIZED");
@@ -150,7 +150,7 @@ public class CommitteeDecisionService {
         String eventType;
 
         switch (decision) {
-            case "APPROVE" -> {
+            case "APPROVED" -> {
                 newStatus = "APPROVED";
                 eventType = "APPROVED";
                 demand.setCommitteeDecision("APPROVED");
@@ -193,7 +193,7 @@ public class CommitteeDecisionService {
 
     private String buildDescription(String decision, BulkDeliberationRequest req) {
         String base = switch (decision) {
-            case "APPROVE" -> "Demanda aprovada em deliberação de mesa";
+            case "APPROVED." -> "Demanda aprovada em deliberação de mesa";
             case "CONDITIONALLY_APPROVE" -> "Demanda aprovada condicionalmente em deliberação de mesa";
             case "REVISION_REQUESTED" -> "Solicitada revisão em deliberação de mesa";
             case "BACKLOG" -> "Demanda movida para backlog em deliberação de mesa";
@@ -227,7 +227,7 @@ public class CommitteeDecisionService {
 
     private String determineNewStatus(String decision) {
         return switch (norm(decision)) {
-            case "APPROVE", "CONDITIONALLY_APPROVE" -> "APPROVED";
+            case "APPROVED", "CONDITIONALLY_APPROVE" -> "APPROVED";
             case "REVISION_REQUESTED" -> "IN_ANALYSIS";
             case "BACKLOG" -> "BACKLOG";
             default -> null;
