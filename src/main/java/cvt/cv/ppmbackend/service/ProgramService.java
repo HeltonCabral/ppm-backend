@@ -71,31 +71,35 @@ public class ProgramService extends AbstractCrudService<Program, ProgramCreateRe
         int positiveStatuses = 0;
 
         for (Project project : projects) {
+            var execution = project.getExecution();
+            if (execution == null) {
+                continue;
+            }
             // Count schedule status
-            if (project.getScheduleStatus() != null) {
+            if (execution.getScheduleStatus() != null) {
                 totalStatuses++;
-                if (isPositiveStatus(project.getScheduleStatus())) {
+                if (isPositiveStatus(execution.getScheduleStatus())) {
                     positiveStatuses++;
                 }
             }
             // Count cost status
-            if (project.getCostStatus() != null) {
+            if (execution.getCostStatus() != null) {
                 totalStatuses++;
-                if (isPositiveStatus(project.getCostStatus())) {
+                if (isPositiveStatus(execution.getCostStatus())) {
                     positiveStatuses++;
                 }
             }
             // Count risk status
-            if (project.getRiskStatus() != null) {
+            if (execution.getRiskStatus() != null) {
                 totalStatuses++;
-                if (isPositiveStatus(project.getRiskStatus())) {
+                if (isPositiveStatus(execution.getRiskStatus())) {
                     positiveStatuses++;
                 }
             }
             // Count value status
-            if (project.getValueStatus() != null) {
+            if (execution.getValueStatus() != null) {
                 totalStatuses++;
-                if (isPositiveStatus(project.getValueStatus())) {
+                if (isPositiveStatus(execution.getValueStatus())) {
                     positiveStatuses++;
                 }
             }

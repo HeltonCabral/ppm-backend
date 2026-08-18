@@ -21,7 +21,7 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
     private final StrategicPlanRepository plans;
     private final DemandRepository demands;
     private final ProgramRepository programs;
-    private final ProjectRepository projects;
+    private final ProjectService projects;
     private final DemandHistoryService historyService;
 
     private static final String STATUS_CONVERTED_TO_PROJECT = "CONVERTED_TO_PROJECT";
@@ -34,7 +34,7 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
     private static final String STATUS_CONDITIONALLY_APPROVED = "CONDITIONALLY_APPROVED";
 
     public StrategicPlanService(StrategicPlanRepository r, DemandRepository demands,
-            ProgramRepository programs, ProjectRepository projects, DemandHistoryService historyService) {
+            ProgramRepository programs, ProjectService projects, DemandHistoryService historyService) {
         super(r, "Plano estratégico");
         this.plans = r;
         this.demands = demands;
@@ -157,7 +157,7 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
                 if (implementationDirections.size() == 1) {
                     // Create only 1 Project
                     Project project = createProjectFromDemand(demand, implementationDirections.get(0), null, false, now);
-                    projects.save(project);
+                    projects.saveFromDemand(project, demand, null, null, null, null, null, actorId);
                     projectsCreated++;
                     convertedToProjects++;
 
@@ -182,7 +182,7 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
 
                     for (DemandParticipatingDirection direction : implementationDirections) {
                         Project project = createProjectFromDemand(demand, direction, program, true, now);
-                        projects.save(project);
+                        projects.saveFromDemand(project, demand, null, null, null, null, null, actorId);
                         projectsCreated++;
                     }
 
@@ -316,16 +316,15 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
         project.setDomain(demand.getDomain());
         project.setProjectType(demand.getType());
         project.setEstimatedBudget(demand.getEstimatedBudget());
-        project.setDesiredDate(demand.getDesiredDate());
         project.setDirectionName(direction.getDirectionName());
         project.setDirectionCode(direction.getDirectionCode());
         project.setAreaName(direction.getAreaName());
         project.setAreaCode(direction.getAreaCode());
         project.setExpectedImpact(demand.getExpectedImpact());
         project.setExpectedBenefit(demand.getExpectedBenefit());
-        project.setSourceDemandId(demand.getId());
+        project.setExpectedBenefits(demand.getExpectedBenefit());
         project.setSourceDemandPortfolioRank(demand.getPortfolioRank());
-        project.setPortfolioRank(demand.getPortfolioRank());
+        project.setExecutionRank(demand.getPortfolioRank());
         project.setCreatedFromConditionalPlanApproval(true);
         project.setStatus(ProjectStatus.PLANNED);
         project.setProgram(program);

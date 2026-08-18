@@ -5,6 +5,8 @@ import cvt.cv.ppmbackend.dto.DemandScoringDtos.DemandScoringResponse;
 import cvt.cv.ppmbackend.dto.DemandScoringDtos.UpsertRequest;
 import cvt.cv.ppmbackend.dto.CommitteeSuggestionResponse;
 import cvt.cv.ppmbackend.dto.PreScoreResponse;
+import cvt.cv.ppmbackend.dto.ComplexityConfigDtos.DemandComplexityResponse;
+import cvt.cv.ppmbackend.service.DemandComplexityService;
 import cvt.cv.ppmbackend.service.DemandScoringService;
 import cvt.cv.ppmbackend.service.DemandService;
 import jakarta.validation.Valid;
@@ -19,10 +21,12 @@ import java.util.UUID;
 public class DemandController {
     private final DemandService demands;
     private final DemandScoringService scoring;
+    private final DemandComplexityService complexity;
 
-    public DemandController(DemandService demands, DemandScoringService scoring) {
+    public DemandController(DemandService demands, DemandScoringService scoring, DemandComplexityService complexity) {
         this.demands = demands;
         this.scoring = scoring;
+        this.complexity = complexity;
     }
 
     private String actor(String header) {
@@ -175,6 +179,12 @@ public class DemandController {
     public PreScoreResponse calculatePreScore(@PathVariable UUID id,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
         return demands.calculatePreScore(id, actor(user));
+    }
+
+    @PostMapping("/{id}/calculate-complexity")
+    public DemandComplexityResponse calculateComplexity(@PathVariable UUID id,
+            @RequestHeader(value = "X-User-Id", required = false) String user) {
+        return complexity.calculate(id, actor(user));
     }
 
     @PostMapping("/{id}/reprioritize-portfolio-rank")

@@ -2,6 +2,8 @@ package cvt.cv.ppmbackend.dto;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import cvt.cv.ppmbackend.enums.DirectionParticipationType;
+import cvt.cv.ppmbackend.enums.DemandComplexity;
+import cvt.cv.ppmbackend.enums.ProfileCategory;
 import cvt.cv.ppmbackend.enums.PlanType;
 import cvt.cv.ppmbackend.enums.Priority;
 import cvt.cv.ppmbackend.validation.ValidReprioritizeRequest;
@@ -10,6 +12,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import cvt.cv.ppmbackend.dto.DemandScoringDtos.DemandScoringResponse;
 import java.math.BigDecimal;
@@ -61,6 +64,7 @@ public final class DemandDtos {
                         @Size(max = 40) String riskStatus,
                         @Size(max = 10000) String risksIdentified,
                         @Size(max = 10000) String dependenciesIdentified,
+                        @PositiveOrZero Integer dependenciesCount,
 
                         BigDecimal scoreTotal,
                         @PositiveOrZero Integer portfolioRank,
@@ -69,7 +73,8 @@ public final class DemandDtos {
                         @Size(max = 60) String committeeDecision,
                         @Size(max = 10000) String rejectionReason,
                         @Valid List<AttachmentInput> attachments,
-                        @Valid List<ParticipatingDirectionCreate> participatingDirections) {
+                        @Valid List<ParticipatingDirectionCreate> participatingDirections,
+                        @Valid List<DemandProfileRequirementInput> profileRequirements) {
         }
 
         public record Update(
@@ -105,6 +110,7 @@ public final class DemandDtos {
                         @Size(max = 40) String riskStatus,
                         @Size(max = 10000) String risksIdentified,
                         @Size(max = 10000) String dependenciesIdentified,
+                        @PositiveOrZero Integer dependenciesCount,
 
                         BigDecimal scoreTotal,
                         @PositiveOrZero Integer portfolioRank,
@@ -112,7 +118,8 @@ public final class DemandDtos {
                         @Size(max = 40) String approvalType,
                         @Size(max = 60) String committeeDecision,
                         @Size(max = 10000) String rejectionReason,
-                        @Valid List<ParticipatingDirectionCreate> participatingDirections) {
+                        @Valid List<ParticipatingDirectionCreate> participatingDirections,
+                        @Valid List<DemandProfileRequirementInput> profileRequirements) {
         }
 
         public record Patch(
@@ -148,6 +155,7 @@ public final class DemandDtos {
                         @Size(max = 40) String riskStatus,
                         @Size(max = 10000) String risksIdentified,
                         @Size(max = 10000) String dependenciesIdentified,
+                        @PositiveOrZero Integer dependenciesCount,
 
                         BigDecimal scoreTotal,
                         @PositiveOrZero Integer portfolioRank,
@@ -155,7 +163,8 @@ public final class DemandDtos {
                         @Size(max = 40) String approvalType,
                         @Size(max = 60) String committeeDecision,
                         @Size(max = 10000) String rejectionReason,
-                        @Valid List<ParticipatingDirectionCreate> participatingDirections) {
+                        @Valid List<ParticipatingDirectionCreate> participatingDirections,
+                        @Valid List<DemandProfileRequirementInput> profileRequirements) {
         }
 
         public record StatusPatch(@NotBlank @Size(max = 50) String status, @Size(max = 4000) String reason) {
@@ -283,6 +292,14 @@ public final class DemandDtos {
                         String riskStatus,
                         String risksIdentified,
                         String dependenciesIdentified,
+                        Integer directionsCount,
+                        Integer profilesCount,
+                        Integer totalResources,
+                        Integer dependenciesCount,
+                        BigDecimal complexityScore,
+                        DemandComplexity complexity,
+                        Integer estimatedDurationMonths,
+                        LocalDate plannedStartDate,
                         BigDecimal scoreTotal,
                         String scoreStatus,
                         Instant scoreCalculatedAt,
@@ -315,6 +332,7 @@ public final class DemandDtos {
                         ProjectSummary convertedProject,
                         List<DemandAttachmentResponse> attachments,
                         List<ParticipatingDirectionResponse> participatingDirections,
+                        List<DemandProfileRequirementResponse> profileRequirements,
                         DemandScoringResponse calculatedScoring) {
         }
 
@@ -440,5 +458,22 @@ public final class DemandDtos {
                         Instant updatedAt,
                         String updatedBy,
                         Long version) {
+        }
+
+        public record DemandProfileRequirementInput(
+                        @NotNull UUID profileId,
+                        @NotNull @Positive Integer requiredQuantity,
+                        @NotNull Integer allocationPercentage) {
+        }
+
+        public record DemandProfileRequirementResponse(
+                        UUID id,
+                        UUID profileId,
+                        String profileName,
+                        ProfileCategory profileCategory,
+                        Integer availableCapacity,
+                        boolean profileActive,
+                        Integer requiredQuantity,
+                        Integer allocationPercentage) {
         }
 }

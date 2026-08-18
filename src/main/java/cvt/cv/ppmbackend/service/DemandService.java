@@ -6,7 +6,6 @@ import cvt.cv.ppmbackend.dto.CommitteeSuggestionResponse;
 import cvt.cv.ppmbackend.dto.PreScoreResponse;
 import cvt.cv.ppmbackend.entity.*;
 import cvt.cv.ppmbackend.enums.CommitteeStatus;
-import cvt.cv.ppmbackend.enums.ExecutiveStatus;
 import cvt.cv.ppmbackend.enums.Priority;
 import cvt.cv.ppmbackend.enums.ProjectStatus;
 import cvt.cv.ppmbackend.exception.BadRequestException;
@@ -54,20 +53,21 @@ public class DemandService {
     private final ProgramService programs;
     private final CommitteeService committees;
     private final CommitteeSuggestionService committeeSuggestions;
-    private final ProjectRepository projects;
+    private final ProjectService projects;
     private final LookupValueService lookups;
     private final DemandScoringService scoringService;
     private final DemandScoreLifecycleService scoreLifecycle;
     private final DemandPreScoreService preScoreService;
+    private final DemandProfileRequirementService profileRequirements;
 
     public DemandService(DemandRepository demands, DemandAttachmentRepository attachments, DemandHistoryRepository history,
             DemandParticipatingDirectionRepository participatingDirections,
             DemandCodeService codeService, DemandHistoryService historyService, StrategicPlanService strategicPlans,
             OperationalPlanService operationalPlans, StrategicPillarService pillars, StrategicObjectiveService objectives,
             ProgramService programs, CommitteeService committees, CommitteeSuggestionService committeeSuggestions,
-            ProjectRepository projects, LookupValueService lookups,
+            ProjectService projects, LookupValueService lookups,
             DemandScoringService scoringService, DemandScoreLifecycleService scoreLifecycle,
-            DemandPreScoreService preScoreService) {
+            DemandPreScoreService preScoreService, DemandProfileRequirementService profileRequirements) {
         this.demands = demands;
         this.attachments = attachments;
         this.history = history;
@@ -86,6 +86,7 @@ public class DemandService {
         this.scoringService = scoringService;
         this.scoreLifecycle = scoreLifecycle;
         this.preScoreService = preScoreService;
+        this.profileRequirements = profileRequirements;
     }
 
     public DemandResponse create(Create req, String actorId) {
@@ -116,6 +117,7 @@ public class DemandService {
                 participatingDirections.save(direction);
             });
         }
+        profileRequirements.sync(saved, req.profileRequirements());
         historyService.log(saved, "CREATED", null, saved.getStatus(), "Demanda criada", actor(actorId), actor(actorId),
                 Map.of("code", saved.getCode()));
         return map(saved);
@@ -128,9 +130,14 @@ public class DemandService {
         BigDecimal previousScore = demand.getScoreTotal();
         String previousDirection = demand.getDirectionCode();
         ScoreRelevantState previousScoreInputs = scoreRelevantState(demand);
+        ComplexityRelevantState previousComplexityInputs = complexityRelevantState(demand);
+        LocalDate previousDesiredDate = demand.getDesiredDate();
         validateReadOnlyScoreFields(req.scoreTotal(), req.portfolioRank(), req.directionRank(), demand, false);
         apply(toCreate(req), demand, false);
         handleScoreRelevantChanges(demand, previousScoreInputs);
+        invalidateComplexityIfNeeded(demand, previousComplexityInputs,
+                req.participatingDirections() != null || req.profileRequirements() != null);
+        refreshPlannedStartDateIfNeeded(demand, previousDesiredDate);
         demand.setUpdatedBy(actor(actorId));
         Demand saved = demands.save(demand);
 
@@ -151,6 +158,7 @@ public class DemandService {
                 participatingDirections.save(direction);
             });
         }
+        profileRequirements.sync(saved, req.profileRequirements());
 
         recomputeRanksIfNeeded(previousScore, previousDirection, saved);
         historyService.log(saved, "UPDATED", old, saved.getStatus(), "Demanda atualizada", actor(actorId),
@@ -164,11 +172,16 @@ public class DemandService {
         BigDecimal previousScore = d.getScoreTotal();
         String previousDirection = d.getDirectionCode();
         ScoreRelevantState previousScoreInputs = scoreRelevantState(d);
+        ComplexityRelevantState previousComplexityInputs = complexityRelevantState(d);
+        LocalDate previousDesiredDate = d.getDesiredDate();
         validateReadOnlyScoreFields(req.scoreTotal(), req.portfolioRank(), req.directionRank(), d, false);
         Create merged = mergePatch(d, req);
         String old = d.getStatus();
         apply(merged, d, false);
         handleScoreRelevantChanges(d, previousScoreInputs);
+        invalidateComplexityIfNeeded(d, previousComplexityInputs,
+                req.participatingDirections() != null || req.profileRequirements() != null);
+        refreshPlannedStartDateIfNeeded(d, previousDesiredDate);
         d.setUpdatedBy(actor(actorId));
         Demand saved = demands.save(d);
 
@@ -189,6 +202,7 @@ public class DemandService {
                 participatingDirections.save(direction);
             });
         }
+        profileRequirements.sync(saved, req.profileRequirements());
 
         recomputeRanksIfNeeded(previousScore, previousDirection, saved);
         historyService.log(saved, "UPDATED", old, saved.getStatus(), "Demanda atualizada parcialmente", actor(actorId),
@@ -404,35 +418,29 @@ public class DemandService {
         p.setBusinessArea(businessArea);
         p.setProjectType(projectType);
         p.setResponsibleDirection(req.responsibleDirection() != null
-            ? req.responsibleDirection() : d.getDirectionCode());
+            ? req.responsibleDirection() : d.getDirectionName());
+        p.setDirectionCode(d.getDirectionCode());
+        p.setDirectionName(firstNonBlank(d.getDirectionName(), d.getDirectionCode()));
+        p.setAreaCode(d.getAreaCode());
+        p.setAreaName(firstNonBlank(d.getAreaName(), d.getAreaCode()));
         p.setResponsibleTeam(req.responsibleTeam());
         p.setProjectManager(projectManager);
         p.setProjectManagerId(req.managerId());
-        p.setStatus(ProjectStatus.DRAFT);
+        p.setStatus(ProjectStatus.PLANNED);
         p.setProjectPhase(projectPhase);
         p.setMainSupplier(mainSupplier);
         if (mainSupplier != null) {
             p.getSuppliers().add(mainSupplier);
         }
         p.setImpactedSystem(req.impactedSystem() != null ? req.impactedSystem() : d.getImpactedSystem());
-        p.setScheduleStatus(ExecutiveStatus.GREEN);
-        p.setCostStatus(ExecutiveStatus.GREEN);
-        p.setRiskStatus(ExecutiveStatus.GREEN);
-        p.setValueStatus(ExecutiveStatus.GREEN);
         p.setExpectedBenefits(req.expectedBenefits() != null ? req.expectedBenefits() : d.getExpectedBenefit());
-        p.setPlannedStartDate(plannedStartDate);
-        p.setStartDate(req.startDate());
-        p.setPlannedEndDate(plannedEndDate);
-        p.setEndDate(req.endDate());
         p.setPriority(req.priority() != null ? req.priority() : mapPriority(d.getInitialPriority()));
-        p.setRanking(ranking);
+        p.setExecutionRank(ranking);
         p.setBudgetLine(firstNonBlank(req.budgetLine(), domain != null ? domain.getCode() : null));
         p.setBudget(budget);
         p.setPlanType(req.planType());
-        p.setDelayReasons(req.delayReasons());
-        p.setSourceDemandId(d.getId());
-
-        Project savedProject = projects.save(p);
+        Project savedProject = projects.saveFromDemand(p, d, plannedStartDate, req.startDate(), plannedEndDate,
+                req.endDate(), req.delayReasons(), actor(actorId));
         scoreLifecycle.applyStatusTransition(d, "APPROVED", "CONVERTED_TO_PROJECT",
                 "Demanda convertida em projeto");
         d.setConvertedProject(savedProject);
@@ -600,6 +608,9 @@ public class DemandService {
         d.setRiskStatus(req.riskStatus() == null ? "NOT_EVALUATED" : norm(req.riskStatus()));
         d.setRisksIdentified(req.risksIdentified());
         d.setDependenciesIdentified(req.dependenciesIdentified());
+        if (creating) {
+            d.setDependenciesCount(0);
+        }
 
         d.setApprovalType(req.approvalType() == null ? null : norm(req.approvalType()));
         d.setCommitteeDecision(req.committeeDecision() == null ? null : norm(req.committeeDecision()));
@@ -741,6 +752,7 @@ public class DemandService {
                 .findByDemandIdOrderByCreatedAtAsc(d.getId()).stream()
                 .map(this::mapParticipatingDirection)
                 .toList();
+        List<DemandProfileRequirementResponse> profileRequirementResponses = profileRequirements.list(d.getId());
         String typeCode = d.getType() != null ? d.getType().getCode() : null;
         String domainCode = d.getDomain() != null ? d.getDomain().getCode() : null;
         LookupValueSummary typeData = mapLookupValue(d.getType());
@@ -765,7 +777,9 @@ public class DemandService {
                 d.getExpectedBenefit(), d.getUrgency(), d.getEstimatedBudget(), d.getDesiredDate(), d.getNotes(),
                 norm(d.getStatus()), d.isInStrategicCommittee(), d.getStrategicCommitteeAt(),
                 d.getCapacityStatus(), d.getRiskStatus(), d.getRisksIdentified(),
-                d.getDependenciesIdentified(), d.getScoreTotal(),
+                d.getDependenciesIdentified(), d.getDirectionsCount(), d.getProfilesCount(), d.getTotalResources(),
+                d.getDependenciesCount(), d.getComplexityScore(), d.getComplexity(), d.getEstimatedDurationMonths(),
+                d.getPlannedStartDate(), d.getScoreTotal(),
                 d.getScoreStatus(), d.getScoreCalculatedAt(), d.getScoreInvalidatedAt(),
                 d.getScoreInvalidationReason(), scoreLifecycle.previousScoreSnapshot(d),
                 d.getPreScore(), d.getPreScoreClassification(),
@@ -774,7 +788,7 @@ public class DemandService {
                 d.getConvertedProjectId(), d.getCreatedAt(), d.getCreatedBy(), d.getUpdatedAt(), d.getUpdatedBy(),
                 d.getVersion(), typeData, domainData, strategicPlan, operationalPlan, strategicPillar,
                 strategicObjective, program, committee, responsibleCommittee,
-                convertedProject, att, participatingDirs, calculatedScoring);
+                convertedProject, att, participatingDirs, profileRequirementResponses, calculatedScoring);
     }
 
     private LookupValueSummary mapLookupValue(LookupValue value) {
@@ -891,16 +905,16 @@ public class DemandService {
                 project.getMainSupplier() != null ? project.getMainSupplier().getId() : null,
                 project.getImpactedSystem(),
                 project.getExpectedBenefits(),
-                project.getPlannedStartDate(),
-                project.getStartDate(),
-                project.getPlannedEndDate(),
-                project.getEndDate(),
+                project.getExecution() != null ? project.getExecution().getPlannedStartDate() : null,
+                project.getExecution() != null ? project.getExecution().getActualStartDate() : null,
+                project.getExecution() != null ? project.getExecution().getPlannedEndDate() : null,
+                project.getExecution() != null ? project.getExecution().getActualEndDate() : null,
                 project.getPriority(),
-                project.getRanking(),
+                project.getExecutionRank(),
                 project.getBudgetLine(),
                 project.getBudget(),
                 project.getPlanType(),
-                project.getDelayReasons());
+                project.getExecution() != null ? project.getExecution().getDelayReasons() : null);
     }
 
     private String firstNonBlank(String... values) {
@@ -995,6 +1009,42 @@ public class DemandService {
         return value == null ? null : value.stripTrailingZeros();
     }
 
+    private ComplexityRelevantState complexityRelevantState(Demand demand) {
+        return new ComplexityRelevantState(demand.getDirectionCode(), demand.getDirectionName(),
+                demand.getProfilesCount(), demand.getTotalResources(), demand.getDependenciesCount());
+    }
+
+    private void invalidateComplexityIfNeeded(Demand demand, ComplexityRelevantState previousState,
+            boolean participatingDirectionsChanged) {
+        if (participatingDirectionsChanged || !previousState.equals(complexityRelevantState(demand))) {
+            invalidateComplexity(demand);
+        }
+    }
+
+    private void invalidateComplexity(Demand demand) {
+        demand.setDirectionsCount(null);
+        demand.setComplexityScore(null);
+        demand.setComplexity(null);
+        demand.setEstimatedDurationMonths(null);
+        demand.setPlannedStartDate(null);
+    }
+
+    private void refreshPlannedStartDateIfNeeded(Demand demand, LocalDate previousDesiredDate) {
+        if (!Objects.equals(previousDesiredDate, demand.getDesiredDate())
+                && demand.getEstimatedDurationMonths() != null) {
+            demand.setPlannedStartDate(demand.getDesiredDate() == null ? null
+                    : demand.getDesiredDate().minusMonths(demand.getEstimatedDurationMonths()));
+        }
+    }
+
+    private record ComplexityRelevantState(
+            String directionCode,
+            String directionName,
+            Integer profilesCount,
+            Integer totalResources,
+            Integer dependenciesCount) {
+    }
+
     private record ScoreRelevantState(
             String description,
             UUID typeId,
@@ -1052,6 +1102,7 @@ public class DemandService {
                 p.riskStatus() != null ? p.riskStatus() : d.getRiskStatus(),
                 p.risksIdentified() != null ? p.risksIdentified() : d.getRisksIdentified(),
                 p.dependenciesIdentified() != null ? p.dependenciesIdentified() : d.getDependenciesIdentified(),
+                p.dependenciesCount() != null ? p.dependenciesCount() : d.getDependenciesCount(),
                 p.scoreTotal() != null ? p.scoreTotal() : d.getScoreTotal(),
                 p.portfolioRank() != null ? p.portfolioRank() : d.getPortfolioRank(),
                 p.directionRank() != null ? p.directionRank() : d.getDirectionRank(),
@@ -1059,7 +1110,8 @@ public class DemandService {
                 p.committeeDecision() != null ? p.committeeDecision() : d.getCommitteeDecision(),
                 p.rejectionReason() != null ? p.rejectionReason() : d.getRejectionReason(),
                 null,
-                p.participatingDirections());
+                p.participatingDirections(),
+                p.profileRequirements());
     }
 
     private Create toCreate(Update u) {
@@ -1068,9 +1120,9 @@ public class DemandService {
             u.strategicObjectiveId(), u.programId(), u.committeeId(), u.domainId(), u.impactedSystem(), u.initialPriority(),
                 u.estimatedEffort(), u.expectedImpact(), u.expectedBenefit(), u.urgency(), u.estimatedBudget(),
                 u.desiredDate(), u.notes(), u.capacityStatus(), u.riskStatus(), u.risksIdentified(),
-                u.dependenciesIdentified(), u.scoreTotal(),
+                u.dependenciesIdentified(), u.dependenciesCount(), u.scoreTotal(),
                 u.portfolioRank(), u.directionRank(), u.approvalType(), u.committeeDecision(), u.rejectionReason(),
-                null, u.participatingDirections());
+                null, u.participatingDirections(), u.profileRequirements());
     }
 
     private Priority mapPriority(String value) {
@@ -1236,6 +1288,9 @@ public class DemandService {
         pd.setUpdatedBy(actor(actorId));
 
         DemandParticipatingDirection saved = participatingDirections.save(pd);
+        invalidateComplexity(demand);
+        demand.setUpdatedBy(actor(actorId));
+        demands.save(demand);
 
         historyService.log(demand, "PARTICIPATING_DIRECTION_ADDED", null, null,
             "Direção participante adicionada: " + req.directionName(),
@@ -1265,6 +1320,9 @@ public class DemandService {
         pd.setUpdatedBy(actor(actorId));
 
         DemandParticipatingDirection saved = participatingDirections.save(pd);
+        invalidateComplexity(demand);
+        demand.setUpdatedBy(actor(actorId));
+        demands.save(demand);
 
         historyService.log(demand, "PARTICIPATING_DIRECTION_UPDATED", null, null,
             "Direção participante atualizada: " + req.directionName(),
@@ -1286,6 +1344,9 @@ public class DemandService {
 
         String directionCode = pd.getDirectionCode();
         participatingDirections.delete(pd);
+        invalidateComplexity(demand);
+        demand.setUpdatedBy(actor(actorId));
+        demands.save(demand);
 
         historyService.log(demand, "PARTICIPATING_DIRECTION_DELETED", null, null,
                 "Direção participante removida: " + directionCode,

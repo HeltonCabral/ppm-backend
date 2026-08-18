@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import cvt.cv.ppmbackend.enums.DirectionParticipationType;
+import cvt.cv.ppmbackend.enums.DemandComplexity;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -163,6 +164,31 @@ public class Demand extends BaseEntity {
     @Column(name = "dependencies_identified", columnDefinition = "TEXT")
     private String dependenciesIdentified;
 
+    @Column(name = "directions_count")
+    private Integer directionsCount;
+
+    @Column(name = "profiles_count")
+    private Integer profilesCount;
+
+    @Column(name = "total_resources")
+    private Integer totalResources;
+
+    @Column(name = "dependencies_count")
+    private Integer dependenciesCount;
+
+    @Column(name = "complexity_score", precision = 4, scale = 2)
+    private BigDecimal complexityScore;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private DemandComplexity complexity;
+
+    @Column(name = "estimated_duration_months")
+    private Integer estimatedDurationMonths;
+
+    @Column(name = "planned_start_date")
+    private LocalDate plannedStartDate;
+
     @Column(name = "score_total", precision = 19, scale = 2)
     private BigDecimal scoreTotal;
 
@@ -227,6 +253,10 @@ public class Demand extends BaseEntity {
     @OneToMany(mappedBy = "demand", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     private List<DemandParticipatingDirection> participatingDirections = new ArrayList<>();
+
+    @OneToMany(mappedBy = "demand", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnore
+    private List<DemandDependency> dependencies = new ArrayList<>();
 
     @Column(name = "reprioritization_reason", length = 80)
     private String reprioritizationReason;

@@ -1,2 +1,10 @@
 package cvt.cv.ppmbackend.enums;
-public enum ProjectStatus { PLANNED, DRAFT, UNDER_ANALYSIS, PRIORITIZED, APPROVED, IN_PROGRESS, BLOCKED, COMPLETED, CANCELLED }
+
+public enum ProjectStatus {
+    BACKLOG,
+    PLANNED,
+    IN_PROGRESS,
+    ON_HOLD,
+    COMPLETED,
+    CANCELLED
+}

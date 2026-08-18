@@ -82,7 +82,7 @@ public class CycleReviewService {
                 if (p == null)
                     errors.add(issue("PROJECT_NOT_FOUND", "Project does not exist: " + pid));
                 else {
-                    if (p.getStatus() == ProjectStatus.BLOCKED)
+                    if (p.getStatus() == ProjectStatus.ON_HOLD)
                         warnings.add(issue("PROJECT_BLOCKED", "Blocked project: " + pid));
                     if (p.getBudget() != null)
                         remaining = remaining.add(p.getBudget());

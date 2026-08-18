@@ -5,6 +5,7 @@ import cvt.cv.ppmbackend.dto.OperationalPlanSummary;
 import cvt.cv.ppmbackend.entity.OperationalPlan;
 import cvt.cv.ppmbackend.entity.OperationalPlanBaseline;
 import cvt.cv.ppmbackend.entity.Project;
+import cvt.cv.ppmbackend.entity.ProjectExecution;
 import cvt.cv.ppmbackend.entity.StrategicPlan;
 import cvt.cv.ppmbackend.enums.ExecutiveStatus;
 import cvt.cv.ppmbackend.enums.OperationalPlanStatus;
@@ -117,8 +118,11 @@ public class OperationalPlanService extends AbstractCrudService<OperationalPlan,
             b.setProjectId(p.getId());
             b.setName(p.getName());
             b.setBudget(p.getBudget());
-            b.setStartDate(p.getStartDate() != null ? p.getStartDate() : p.getPlannedStartDate());
-            b.setEndDate(p.getEndDate() != null ? p.getEndDate() : p.getPlannedEndDate());
+            ProjectExecution e = p.getExecution();
+            b.setStartDate(e == null ? null
+                    : e.getActualStartDate() != null ? e.getActualStartDate() : e.getPlannedStartDate());
+            b.setEndDate(e == null ? null
+                    : e.getActualEndDate() != null ? e.getActualEndDate() : e.getPlannedEndDate());
             baselines.save(b);
         }
     }
@@ -135,7 +139,8 @@ public class OperationalPlanService extends AbstractCrudService<OperationalPlan,
         List<Project> projs = projects.findByOperationalPlan(id);
         BigDecimal budget = projs.stream().map(Project::getBudget).filter(java.util.Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        long atRisk = projs.stream().filter(p -> p.getRiskStatus() == ExecutiveStatus.RED).count();
+        long atRisk = projs.stream().filter(p -> p.getExecution() != null
+                && p.getExecution().getRiskStatus() == ExecutiveStatus.RED).count();
         Map<String, Long> byStatus = projs.stream()
                 .filter(p -> p.getStatus() != null)
                 .collect(Collectors.groupingBy(p -> p.getStatus().name(), Collectors.counting()));

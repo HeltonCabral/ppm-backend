@@ -6,8 +6,11 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import cvt.cv.ppmbackend.enums.*;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.ColumnDefault;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 import java.math.BigDecimal;
-import java.time.LocalDate;
+import java.time.Instant;
 import java.util.*;
 
 @Entity
@@ -17,10 +20,20 @@ import java.util.*;
 @NoArgsConstructor
 @JsonIgnoreProperties({ "hibernateLazyInitializer", "handler" })
 public class Project extends BaseEntity {
+    @Column(unique = true, length = 30)
+    private String code;
     @Column(nullable = false, length = 180)
     private String name;
     @Column(columnDefinition = "TEXT")
     private String description;
+    @Enumerated(EnumType.STRING)
+    @Column(length = 30)
+    @ColumnDefault("'EXTRA_PLAN'")
+    private ProjectOrigin origin = ProjectOrigin.EXTRA_PLAN;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "source_demand_id")
+    @JsonIgnore
+    private Demand sourceDemand;
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "program_id")
     private Program program;
@@ -48,13 +61,13 @@ public class Project extends BaseEntity {
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "project_type_id")
     private LookupValue projectType;
-    @Column(name = "direction_name", length = 120)
+    @Column(name = "direction_name", length = 200)
     private String directionName;
-    @Column(name = "direction_code", length = 60)
+    @Column(name = "direction_code", length = 100)
     private String directionCode;
-    @Column(name = "area_name", length = 120)
+    @Column(name = "area_name", length = 200)
     private String areaName;
-    @Column(name = "area_code", length = 60)
+    @Column(name = "area_code", length = 100)
     private String areaCode;
     @Column(length = 120)
     private String responsibleDirection;
@@ -78,31 +91,16 @@ public class Project extends BaseEntity {
     private Set<Supplier> suppliers = new HashSet<>();
     @Column(length = 150)
     private String impactedSystem;
-    @Enumerated(EnumType.STRING)
-    private ExecutiveStatus scheduleStatus;
-    @Enumerated(EnumType.STRING)
-    private ExecutiveStatus costStatus;
-    @Enumerated(EnumType.STRING)
-    private ExecutiveStatus riskStatus;
-    @Enumerated(EnumType.STRING)
-    private ExecutiveStatus valueStatus;
     @Column(name = "expected_impact", columnDefinition = "TEXT")
     private String expectedImpact;
     @Column(name = "expected_benefit", columnDefinition = "TEXT")
     private String expectedBenefit;
     @Column(columnDefinition = "TEXT")
     private String expectedBenefits;
-    private LocalDate plannedStartDate;
-    private LocalDate startDate;
-    private LocalDate plannedEndDate;
-    private LocalDate endDate;
-    @Column(name = "desired_date")
-    private LocalDate desiredDate;
     @Enumerated(EnumType.STRING)
     private Priority priority;
-    private Integer ranking;
-    @Column(name = "portfolio_rank")
-    private Integer portfolioRank;
+    @Column(name = "execution_rank")
+    private Integer executionRank;
     @Column(length = 120)
     private String budgetLine;
     @Column(precision = 18, scale = 2)
@@ -111,14 +109,27 @@ public class Project extends BaseEntity {
     private BigDecimal estimatedBudget;
     @Enumerated(EnumType.STRING)
     private PlanType planType;
-    @Column(columnDefinition = "TEXT")
-    private String delayReasons;
-    @Column(name = "source_demand_id")
-    private UUID sourceDemandId;
     @Column(name = "source_demand_portfolio_rank")
     private Integer sourceDemandPortfolioRank;
     @Column(name = "created_from_conditional_plan_approval")
     private Boolean createdFromConditionalPlanApproval;
+    @Column(name = "extra_plan_justification", columnDefinition = "TEXT")
+    private String extraPlanJustification;
+    @OneToOne(mappedBy = "project", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @JsonIgnore
+    private ProjectExecution execution;
+    @OneToMany(mappedBy = "project", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<ProjectTeamMember> teamMembers = new ArrayList<>();
+    @CreationTimestamp
+    @Column(name = "created_at", updatable = false)
+    private Instant createdAt;
+    @Column(name = "created_by", length = 150)
+    private String createdBy = "system";
+    @UpdateTimestamp
+    @Column(name = "updated_at")
+    private Instant updatedAt;
+    @Column(name = "updated_by", length = 150)
+    private String updatedBy = "system";
 
     @JsonProperty("programId")
     public UUID getProgramId() {
@@ -148,5 +159,22 @@ public class Project extends BaseEntity {
     @JsonProperty("domainId")
     public UUID getDomainId() {
         return domain != null ? domain.getId() : null;
+    }
+
+    @JsonProperty("sourceDemandId")
+    public UUID getSourceDemandId() {
+        return sourceDemand != null ? sourceDemand.getId() : null;
+    }
+
+    @JsonProperty("supplierId")
+    public UUID getSupplierId() {
+        return mainSupplier != null ? mainSupplier.getId() : null;
+    }
+
+    public void attachExecution(ProjectExecution value) {
+        execution = value;
+        if (value != null && value.getProject() != this) {
+            value.setProject(this);
+        }
     }
 }
