@@ -16,30 +16,36 @@ public final class ProfileDtos {
 
     public record CreateRequest(
             @NotBlank @Size(max = 150) String name,
-            @NotNull ProfileCategory category,
             @Size(max = 10000) String description,
-            @NotNull @PositiveOrZero Integer availableCapacity) {
+            String directionCode,
+            String directionName,
+            @NotNull @PositiveOrZero Integer availableCapacity,
+            @NotNull @PositiveOrZero Integer simultaneousDemandCapacity) {
     }
 
     public record UpdateRequest(
             @NotBlank @Size(max = 150) String name,
-            @NotNull ProfileCategory category,
+            String directionCode,
+            String directionName,
             @Size(max = 10000) String description,
-            @NotNull @PositiveOrZero Integer availableCapacity) {
+            @NotNull @PositiveOrZero Integer availableCapacity,
+         @NotNull @PositiveOrZero Integer simultaneousDemandCapacity) {
     }
 
     public record Response(
             UUID id,
             String name,
-            ProfileCategory category,
+            String directionCode,
+            String directionName,
             String description,
             Integer availableCapacity,
+            Integer simultaneousDemandCapacity,
             boolean active,
             Instant createdAt,
             Instant updatedAt) {
         public static Response from(Profile profile) {
-            return new Response(profile.getId(), profile.getName(), profile.getCategory(), profile.getDescription(),
-                    profile.getAvailableCapacity(), profile.isActive(), profile.getCreatedAt(), profile.getUpdatedAt());
+            return new Response(profile.getId(), profile.getName(),profile.getDirectionCode(),profile.getDirectionName(), profile.getDescription(),
+                    profile.getAvailableCapacity(),profile.getSimultaneousDemandCapacity(), profile.isActive(), profile.getCreatedAt(), profile.getUpdatedAt());
         }
     }
 }

@@ -103,7 +103,7 @@ public class DemandProfileRequirementService {
     private DemandProfileRequirementResponse response(DemandProfileRequirement requirement) {
         Profile profile = requirement.getProfile();
         return new DemandProfileRequirementResponse(requirement.getId(), profile.getId(), profile.getName(),
-                profile.getCategory(), profile.getAvailableCapacity(), profile.isActive(),
+                profile.getDirectionCode(), profile.getAvailableCapacity(), profile.isActive(),
                 requirement.getRequiredQuantity(), requirement.getAllocationPercentage());
     }
 

@@ -145,6 +145,7 @@ public class DemandComplexityService {
         demand.setComplexityScore(complexityScore);
         demand.setComplexity(level.getLevel());
         demand.setEstimatedDurationMonths(level.getEstimatedDurationMonths());
+        demand.setStatus("IN_ANALYSIS");
         demand.setPlannedStartDate(demand.getDesiredDate() == null ? null
                 : demand.getDesiredDate().minusMonths(level.getEstimatedDurationMonths()));
         demand.setUpdatedBy(actor == null || actor.isBlank() ? "system" : actor.trim());

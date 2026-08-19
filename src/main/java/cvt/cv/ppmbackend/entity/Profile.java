@@ -20,18 +20,22 @@ import java.time.Instant;
 @Setter
 @NoArgsConstructor
 public class Profile extends BaseEntity {
-    @Column(nullable = false, unique = true, length = 150)
+    @Column(nullable = false, length = 150)
     private String name;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 40)
-    private ProfileCategory category;
+    @Column(name = "direction_code", length = 50)
+    private String directionCode;
+    @Column(name = "direction_name", length = 50)
+    private String directionName;
 
     @Column(columnDefinition = "TEXT")
     private String description;
 
     @Column(name = "available_capacity", nullable = false)
     private Integer availableCapacity;
+
+    @Column(name = "simultaneous_demand_capacity", nullable = false)
+    private Integer simultaneousDemandCapacity;
 
     @Column(nullable = false)
     private boolean active = true;

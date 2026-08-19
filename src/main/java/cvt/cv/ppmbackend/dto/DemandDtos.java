@@ -470,7 +470,7 @@ public final class DemandDtos {
                         UUID id,
                         UUID profileId,
                         String profileName,
-                        ProfileCategory profileCategory,
+                        String directionCode,
                         Integer availableCapacity,
                         boolean profileActive,
                         Integer requiredQuantity,

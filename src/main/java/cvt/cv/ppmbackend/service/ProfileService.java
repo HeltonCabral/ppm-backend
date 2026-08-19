@@ -39,9 +39,9 @@ public class ProfileService {
 
     public Response create(CreateRequest request) {
         String name = normalizedName(request.name());
-        ensureUniqueName(name, null);
+       // ensureUniqueName(name, null);
         Profile profile = new Profile();
-        apply(profile, name, request.category(), request.description(), request.availableCapacity());
+        apply(profile, name,request.directionCode(),request.directionName(), request.description(), request.availableCapacity(),request.simultaneousDemandCapacity());
         profile.setActive(true);
         return Response.from(profiles.save(profile));
     }
@@ -49,8 +49,8 @@ public class ProfileService {
     public Response update(UUID id, UpdateRequest request) {
         Profile profile = entity(id);
         String name = normalizedName(request.name());
-        ensureUniqueName(name, id);
-        apply(profile, name, request.category(), request.description(), request.availableCapacity());
+       // ensureUniqueName(name, id);
+        apply(profile, name,request.directionCode(),request.directionName() , request.description(), request.availableCapacity(), request.simultaneousDemandCapacity());
         return Response.from(profiles.save(profile));
     }
 
@@ -72,15 +72,14 @@ public class ProfileService {
                 .orElseThrow(() -> new ResourceNotFoundException("Perfil não encontrado: " + id));
     }
 
-    private void apply(Profile profile, String name, cvt.cv.ppmbackend.enums.ProfileCategory category,
-            String description, Integer availableCapacity) {
-        if (category == null) throw new BadRequestException("category é obrigatória");
-        if (availableCapacity == null || availableCapacity < 0) {
-            throw new BadRequestException("availableCapacity deve ser um inteiro maior ou igual a zero");
-        }
+    private void apply(Profile profile, String name, String directionCode, String directionName,
+            String description, Integer availableCapacity, Integer simultaneousDemandCapacity) {
+        
         profile.setName(name);
-        profile.setCategory(category);
+        profile.setDirectionCode(directionCode == null ? null : directionCode.trim());
+        profile.setDirectionName(directionName == null ? null : directionName.trim());
         profile.setDescription(description == null ? null : description.trim());
+        profile.setSimultaneousDemandCapacity(simultaneousDemandCapacity);
         profile.setAvailableCapacity(availableCapacity);
     }
 
@@ -89,11 +88,4 @@ public class ProfileService {
         return name.trim();
     }
 
-    private void ensureUniqueName(String name, UUID currentId) {
-        profiles.findByNameIgnoreCase(name).ifPresent(existing -> {
-            if (!existing.getId().equals(currentId)) {
-                throw new BadRequestException("Já existe um perfil com o nome: " + name);
-            }
-        });
-    }
 }

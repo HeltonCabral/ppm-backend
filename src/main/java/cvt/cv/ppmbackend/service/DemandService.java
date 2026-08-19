@@ -29,10 +29,11 @@ import java.util.*;
 public class DemandService {
     private static final String STATUS_IN_ANALYSIS = "IN_ANALYSIS";
     private static final String STATUS_IN_PRIORITIZATION = "IN_PRIORITIZATION";
+    private static final String STATUS_DRAFT = "DRAFT";
     private static final String STATUS_IN_STRATEGIC_COMMITTEE = "IN_STRATEGIC_COMMITTEE";
     private static final Set<String> PRIORITY_CODES = Set.of("LOW", "MEDIUM", "HIGH", "CRITICAL");
     private static final Set<String> EFFORT_CODES = Set.of("LOW", "MEDIUM", "HIGH");
-    private static final Set<String> STATUS_CODES = Set.of(STATUS_IN_ANALYSIS, STATUS_IN_PRIORITIZATION,
+    private static final Set<String> STATUS_CODES = Set.of(STATUS_DRAFT,STATUS_IN_ANALYSIS, STATUS_IN_PRIORITIZATION,
             "PRIORITIZED", STATUS_IN_STRATEGIC_COMMITTEE, "APPROVED", "BACKLOG", "CONVERTED_TO_PROJECT", "ARCHIVED",
             "UNDER_PRIORITIZATION", "READY_FOR_COMMITTEE");
     private static final Set<String> CAPACITY_CODES = Set.of("NOT_ANALYZED", "AVAILABLE", "LIMITED", "UNAVAILABLE");
@@ -92,7 +93,7 @@ public class DemandService {
     public DemandResponse create(Create req, String actorId) {
         Demand demand = new Demand();
         demand.setCode(codeService.nextCode());
-        demand.setStatus(STATUS_IN_ANALYSIS);
+        demand.setStatus(STATUS_DRAFT);
         demand.setCreatedBy(actor(actorId));
         demand.setUpdatedBy(actor(actorId));
         validateReadOnlyScoreFields(req.scoreTotal(), req.portfolioRank(), req.directionRank(), demand, true);
@@ -617,7 +618,7 @@ public class DemandService {
         d.setRejectionReason(req.rejectionReason());
 
         if (creating)
-            d.setStatus(STATUS_IN_ANALYSIS);
+            d.setStatus(STATUS_DRAFT);
 
         validateBusinessRules(d);
 
@@ -689,6 +690,7 @@ public class DemandService {
                     Map.of("from", from, "to", to));
         }
         Map<String, Set<String>> next = new HashMap<>();
+        next.put(STATUS_DRAFT, Set.of(STATUS_IN_ANALYSIS, "BACKLOG", "ARCHIVED"));
         next.put(STATUS_IN_ANALYSIS, Set.of(STATUS_IN_PRIORITIZATION, "BACKLOG", "ARCHIVED"));
         next.put(STATUS_IN_PRIORITIZATION, Set.of("PRIORITIZED", "BACKLOG", "ARCHIVED", STATUS_IN_ANALYSIS));
         next.put("PRIORITIZED", Set.of(STATUS_IN_STRATEGIC_COMMITTEE, "ARCHIVED"));

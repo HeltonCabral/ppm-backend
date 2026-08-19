@@ -143,7 +143,7 @@ public class Demand extends BaseEntity {
     private String notes;
 
     @Column(nullable = false, length = 50)
-    private String status = "IN_ANALYSIS";
+    private String status = "DRAFT";
 
     @Column(name = "in_strategic_committee", nullable = false)
     @ColumnDefault("false")
