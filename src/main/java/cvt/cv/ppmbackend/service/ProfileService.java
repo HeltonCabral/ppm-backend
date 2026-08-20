@@ -37,6 +37,23 @@ public class ProfileService {
         return Response.from(entity(id));
     }
 
+    @Transactional(readOnly = true)
+    public List<Response> findByDirectionCodes(List<String> directionCodes) {
+        if (directionCodes == null || directionCodes.isEmpty()) {
+            throw new BadRequestException("directionCode é obrigatório");
+        }
+        List<String> normalized = directionCodes.stream()
+                .filter(code -> code != null && !code.isBlank())
+                .map(code -> code.trim().toLowerCase())
+                .distinct()
+                .toList();
+        if (normalized.isEmpty()) {
+            throw new BadRequestException("directionCode é obrigatório");
+        }
+        return profiles.findByDirectionCodeInIgnoreCase(normalized).stream()
+                .map(Response::from).toList();
+    }
+
     public Response create(CreateRequest request) {
         String name = normalizedName(request.name());
        // ensureUniqueName(name, null);

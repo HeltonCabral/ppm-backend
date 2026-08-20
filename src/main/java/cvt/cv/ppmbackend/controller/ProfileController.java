@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -43,6 +44,11 @@ public class ProfileController {
         return profiles.get(id);
     }
 
+    @GetMapping("/findByDirectionCodes")
+    public List<Response> search(@RequestParam List<String> directionCode) {
+        return profiles.findByDirectionCodes(directionCode);
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public Response create(@Valid @RequestBody CreateRequest request) {
@@ -53,6 +59,8 @@ public class ProfileController {
     public Response update(@PathVariable UUID id, @Valid @RequestBody UpdateRequest request) {
         return profiles.update(id, request);
     }
+
+    
 
     @PatchMapping("/{id}/activate")
     public Response activate(@PathVariable UUID id) {
