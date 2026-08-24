@@ -160,21 +160,21 @@ public class ProjectService {
         return ProjectResponse.from(projects.save(p));
     }
 
-    public Project saveFromDemand(Project p, Demand demand, LocalDate plannedStart, LocalDate actualStart,
-            LocalDate plannedEnd, LocalDate actualEnd, String delayReasons, String actor) {
+    public Project saveFromDemand(Project p, Demand demand, DemandPlanningCycle cycle, LocalDate plannedStart,
+            LocalDate actualStart, LocalDate plannedEnd, LocalDate actualEnd, String delayReasons, String actor) {
         validateDates(plannedStart, plannedEnd);
         if (p.getCode() == null) p.setCode(nextCode());
         p.setOrigin(ProjectOrigin.DEMAND);
         p.setSourceDemand(demand);
         p.setStatus(ProjectStatus.PLANNED);
-        p.setExecutionRank(demand.getPortfolioRank());
-        p.setSourceDemandPortfolioRank(demand.getPortfolioRank());
+        p.setExecutionRank(cycle.getPortfolioRank());
+        p.setSourceDemandPortfolioRank(cycle.getPortfolioRank());
         if (p.getBudget() == null) p.setBudget(demand.getEstimatedBudget());
         if (!hasText(p.getExpectedBenefits())) p.setExpectedBenefits(demand.getExpectedBenefit());
-        if (p.getStrategicPlan() == null) p.setStrategicPlan(demand.getStrategicPlan());
-        if (p.getOperationalPlan() == null) p.setOperationalPlan(demand.getOperationalPlan());
-        if (p.getStrategicPillar() == null) p.setStrategicPillar(demand.getStrategicPillar());
-        if (p.getStrategicObjective() == null) p.setStrategicObjective(demand.getStrategicObjective());
+        if (p.getStrategicPlan() == null) p.setStrategicPlan(cycle.getStrategicPlan());
+        if (p.getOperationalPlan() == null) p.setOperationalPlan(cycle.getOperationalPlan());
+        if (p.getStrategicPillar() == null) p.setStrategicPillar(cycle.getStrategicPillar());
+        if (p.getStrategicObjective() == null) p.setStrategicObjective(cycle.getStrategicObjective());
         if (!hasText(p.getDirectionName())) {
             p.setDirectionName(firstNonBlank(demand.getDirectionName(), demand.getDirectionCode()));
             p.setDirectionCode(hasText(demand.getDirectionName()) ? demand.getDirectionCode() : null);
@@ -284,6 +284,9 @@ public class ProjectService {
     public List<Project> findByProgram(UUID id) { return projects.findByProgram_Id(id); }
     @Transactional(readOnly = true)
     public List<Project> findByOperationalPlan(UUID id) { return projects.findByOperationalPlan_Id(id); }
+
+    @Transactional(readOnly = true)
+    public long countByOperationalPlan(UUID id) { return projects.countByOperationalPlan_Id(id); }
 
     private ProjectExecution newExecution(LocalDate plannedStart, LocalDate actualStart, LocalDate plannedEnd,
             LocalDate actualEnd, String delayReasons, String actor) {

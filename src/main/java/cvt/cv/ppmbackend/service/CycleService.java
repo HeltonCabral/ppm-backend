@@ -44,7 +44,7 @@ public class CycleService {
         c.setEndYear(r.endYear());
         c.setDescription(r.description());
         c.setStatus(StrategicPlanStatus.DRAFT);
-        c.setRevision(1);
+        c.setRevisionNumber(1);
         c.setCreatedBy(user);
         c.setUpdatedBy(user);
         c = cycles.save(c);
@@ -90,7 +90,7 @@ public class CycleService {
         StrategicPlan c = entity(id);
         if (r.version() != null && !r.version().equals(c.getVersion()))
             conflict("CYCLE_VERSION_CONFLICT", "Cycle was modified", Map.of("version", c.getVersion()));
-        if (Set.of(StrategicPlanStatus.ACTIVE, StrategicPlanStatus.REPLACED, StrategicPlanStatus.CLOSED)
+        if (Set.of(StrategicPlanStatus.ACTIVE, StrategicPlanStatus.SUPERSEDED, StrategicPlanStatus.CLOSED)
                 .contains(c.getStatus()))
             conflict("CYCLE_NOT_EDITABLE", "Cycle is not editable", Map.of("status", c.getStatus()));
         if ((r.startYear() != null || r.endYear() != null) && c.getStatus() != StrategicPlanStatus.DRAFT)
@@ -139,7 +139,7 @@ public class CycleService {
         if (action.equals("activate"))
             cycles.findFirstByStatus(StrategicPlanStatus.ACTIVE).filter(x -> !x.getId().equals(id)).ifPresent(x -> {
                 StrategicPlanStatus old = x.getStatus();
-                x.setStatus(StrategicPlanStatus.REPLACED);
+                x.setStatus(StrategicPlanStatus.SUPERSEDED);
                 x.setUpdatedBy(user);
                 log(x, "REPLACED", old, x.getStatus(), "Replaced by " + id, user);
             });
@@ -205,7 +205,7 @@ public class CycleService {
     }
 
     private Response map(StrategicPlan c) {
-        return new Response(c.getId(), c.getName(), c.getStartYear(), c.getEndYear(), c.getStatus(), c.getRevision(),
+        return new Response(c.getId(), c.getName(), c.getStartYear(), c.getEndYear(), c.getStatus(), c.getRevisionNumber(),
                 c.getApprovalDate(), c.getApprovedBy(), c.getDescription(), c.getCreatedAt(), c.getCreatedBy(),
                 c.getUpdatedAt(), c.getUpdatedBy(), c.getVersion());
     }

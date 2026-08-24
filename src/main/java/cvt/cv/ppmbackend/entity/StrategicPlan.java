@@ -27,8 +27,10 @@ public class StrategicPlan extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private StrategicPlanStatus status = StrategicPlanStatus.DRAFT;
-    @Column(nullable = false)
-    private Integer revision = 1;
+    @Column(name = "horizon_years")
+    private Integer horizonYears;
+    @Column(name = "revision_number", nullable = false)
+    private Integer revisionNumber = 1;
     @Version
     private Long version;
     @Column(name = "approval_date")

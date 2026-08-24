@@ -2,14 +2,18 @@ package cvt.cv.ppmbackend.service;
 
 import cvt.cv.ppmbackend.dto.SupplierCreateRequest;
 import cvt.cv.ppmbackend.entity.Supplier;
+import cvt.cv.ppmbackend.exception.ResourceNotFoundException;
+import cvt.cv.ppmbackend.repository.CurrencyRepository;
 import cvt.cv.ppmbackend.repository.SupplierRepository;
 import org.springframework.stereotype.Service;
-import java.math.BigDecimal;
 
 @Service
 public class SupplierService extends AbstractCrudService<Supplier, SupplierCreateRequest> {
-    public SupplierService(SupplierRepository r) {
+    private final CurrencyRepository currencies;
+
+    public SupplierService(SupplierRepository r, CurrencyRepository currencies) {
         super(r, "Fornecedor");
+        this.currencies = currencies;
     }
 
     protected Supplier newEntity() {
@@ -17,13 +21,13 @@ public class SupplierService extends AbstractCrudService<Supplier, SupplierCreat
     }
 
     protected Supplier apply(SupplierCreateRequest r, Supplier e) {
-        validateDates(r.contractStartDate(), r.contractEndDate(), "Data do contrato");
         e.setName(r.name());
-        e.setContract(r.contract());
-        e.setAvailableHourPackage(r.availableHourPackage());
-        e.setConsumedHours(r.consumedHours() == null ? BigDecimal.ZERO : r.consumedHours());
-        e.setContractStartDate(r.contractStartDate());
-        e.setContractEndDate(r.contractEndDate());
+        e.setCountry(r.country());
+        e.setRatePerHour(r.ratePerHour());
+        e.setRateUnit(r.rateUnit());
+        
+        e.setCurrency(r.currencyId() == null ? null : currencies.findById(r.currencyId())
+                .orElseThrow(() -> new ResourceNotFoundException("Moeda não encontrada: " + r.currencyId())));
         return e;
     }
 }

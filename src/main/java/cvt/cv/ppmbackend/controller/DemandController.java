@@ -1,11 +1,15 @@
 package cvt.cv.ppmbackend.controller;
 
 import cvt.cv.ppmbackend.dto.DemandDtos.*;
+import cvt.cv.ppmbackend.dto.DemandPlanningCycleDtos;
+import cvt.cv.ppmbackend.dto.DemandPlanningCycleDtos.EnrichmentRequest;
+import cvt.cv.ppmbackend.dto.DemandPlanningCycleDtos.TransitionRequest;
 import cvt.cv.ppmbackend.dto.DemandScoringDtos.DemandScoringResponse;
 import cvt.cv.ppmbackend.dto.DemandScoringDtos.UpsertRequest;
 import cvt.cv.ppmbackend.dto.CommitteeSuggestionResponse;
 import cvt.cv.ppmbackend.dto.PreScoreResponse;
 import cvt.cv.ppmbackend.dto.ComplexityConfigDtos.DemandComplexityResponse;
+import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import cvt.cv.ppmbackend.service.DemandComplexityService;
 import cvt.cv.ppmbackend.service.DemandScoringService;
 import cvt.cv.ppmbackend.service.DemandService;
@@ -46,7 +50,7 @@ public class DemandController {
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "createdAt") String sort,
             @RequestParam(required = false) String search,
-            @RequestParam(required = false) List<String> status,
+            @RequestParam(required = false) List<DemandPlanningStatus> status,
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String origin,
             @RequestParam(required = false) String initialPriority,
@@ -69,50 +73,70 @@ public class DemandController {
     public PagedDemandsResponse listPortfolioRanked(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
+            @RequestParam UUID strategicPlanId,
             @RequestParam(required = false) String directionCode,
             @RequestParam(required = false) String areaCode) {
-        return demands.listPortfolioRanked(page, size, directionCode, areaCode);
+        return demands.listPortfolioRanked(page, size, strategicPlanId, directionCode, areaCode);
     }
-
-    
 
     @GetMapping("/{id}")
     public DemandResponse get(@PathVariable UUID id) {
         return demands.get(id);
     }
 
-    @GetMapping("/{id}/committee-suggestion")
-    public CommitteeSuggestionResponse committeeSuggestion(@PathVariable UUID id) {
-        return demands.committeeSuggestion(id);
+    @GetMapping("/{id}/planning-history")
+    public List<DemandPlanningCycleDtos.PlanningHistoryItem> planningHistory(@PathVariable UUID id) {
+        return demands.planningHistory(id);
+    }
+
+    @GetMapping("/{id}/planning-cycles/{strategicPlanId}")
+    public DemandPlanningCycleDtos.Response getCycle(@PathVariable UUID id, @PathVariable UUID strategicPlanId) {
+        return demands.getCycle(id, strategicPlanId);
+    }
+
+    @PatchMapping("/{id}/planning-cycles/{strategicPlanId}")
+    public DemandPlanningCycleDtos.Response updateCycleEnrichment(@PathVariable UUID id,
+            @PathVariable UUID strategicPlanId, @Valid @RequestBody EnrichmentRequest req,
+            @RequestHeader(value = "X-User-Id", required = false) String user) {
+        return demands.updateCycleEnrichment(id, strategicPlanId, req, actor(user));
+    }
+
+    @GetMapping("/{id}/planning-cycles/{strategicPlanId}/committee-suggestion")
+    public CommitteeSuggestionResponse committeeSuggestion(@PathVariable UUID id, @PathVariable UUID strategicPlanId) {
+        return demands.committeeSuggestion(id, strategicPlanId);
     }
 
     @GetMapping("/in-priorization/by-username")
-    public List<DemandResponse> listInPriorizationByUsername(@RequestParam String username) {
-        return demands.listInPriorizationByUsername(username);
+    public List<DemandResponse> listInPriorizationByUsername(@RequestParam String username,
+            @RequestParam UUID strategicPlanId) {
+        return demands.listInPriorizationByUsername(username, strategicPlanId);
     }
 
-    @PatchMapping("/{id}/assign-committee")
+    @PatchMapping("/{id}/planning-cycles/{strategicPlanId}/assign-committee")
     public DemandResponse assignCommittee(
             @PathVariable UUID id,
+            @PathVariable UUID strategicPlanId,
             @Valid @RequestBody AssignCommitteeRequest request,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
-        return demands.assignCommittee(id, request, actor(user));
+        return demands.assignCommittee(id, strategicPlanId, request, actor(user));
     }
 
-    @PostMapping("/{id}/send-to-strategic-committee")
+    @PostMapping("/{id}/planning-cycles/{strategicPlanId}/send-to-strategic-committee")
     public DemandResponse sendToStrategicCommittee(
             @PathVariable UUID id,
+            @PathVariable UUID strategicPlanId,
             @RequestBody(required = false) SendToStrategicCommitteeRequest request,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
         String reason = request != null ? request.reason() : null;
-        return demands.sendToStrategicCommittee(id, reason, actor(user));
+        return demands.sendToStrategicCommittee(id, strategicPlanId, reason, actor(user));
     }
 
     @PostMapping("/send-to-strategic-committee/bulk")
     public List<DemandResponse> sendToStrategicCommitteeBulk(
+            @RequestParam UUID strategicPlanId,
             @Valid @RequestBody SendToStrategicCommitteeBulkRequest request,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
-        return demands.sendToStrategicCommitteeBulk(request.demandIds(), request.reason(), actor(user));
+        return demands.sendToStrategicCommitteeBulk(request.demandIds(), strategicPlanId, request.reason(), actor(user));
     }
 
     @PutMapping("/{id}")
@@ -133,10 +157,11 @@ public class DemandController {
         demands.delete(id, actor(user));
     }
 
-    @PatchMapping("/{id}/status")
-    public DemandResponse changeStatus(@PathVariable UUID id, @Valid @RequestBody StatusPatch req,
+    @PatchMapping("/{id}/planning-cycles/{strategicPlanId}/status")
+    public DemandResponse changeStatus(@PathVariable UUID id, @PathVariable UUID strategicPlanId,
+            @Valid @RequestBody TransitionRequest req,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
-        return demands.changeStatus(id, req, actor(user));
+        return demands.changeStatus(id, strategicPlanId, req, actor(user));
     }
 
     @GetMapping("/{id}/history")
@@ -158,40 +183,43 @@ public class DemandController {
         demands.deleteAttachment(id, attachmentId, actor(user));
     }
 
-    @PostMapping("/{id}/convert-to-project")
-    public ConvertResponse convertToProject(@PathVariable UUID id, @Valid @RequestBody ConvertToProject req,
+    @PostMapping("/{id}/planning-cycles/{strategicPlanId}/convert-to-project")
+    public ConvertResponse convertToProject(@PathVariable UUID id, @PathVariable UUID strategicPlanId,
+            @Valid @RequestBody ConvertToProject req,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
-        return demands.convertToProject(id, req, actor(user));
+        return demands.convertToProject(id, strategicPlanId, req, actor(user));
     }
 
-    @GetMapping("/{id}/scoring")
-    public DemandScoringResponse getScoring(@PathVariable UUID id) {
-        return scoring.getByDemand(id);
+    @GetMapping("/{id}/planning-cycles/{strategicPlanId}/scoring")
+    public DemandScoringResponse getScoring(@PathVariable UUID id, @PathVariable UUID strategicPlanId) {
+        return scoring.getByDemandAndPlan(id, strategicPlanId);
     }
 
-    @PutMapping("/{id}/scoring")
-    public DemandScoringResponse upsertScoring(@PathVariable UUID id, @Valid @RequestBody UpsertRequest req,
+    @PutMapping("/{id}/planning-cycles/{strategicPlanId}/scoring")
+    public DemandScoringResponse upsertScoring(@PathVariable UUID id, @PathVariable UUID strategicPlanId,
+            @Valid @RequestBody UpsertRequest req,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
-        return scoring.upsert(id, req, actor(user));
+        return scoring.upsert(id, strategicPlanId, req, actor(user));
     }
 
-    @PostMapping("/{id}/calculate-pre-score")
-    public PreScoreResponse calculatePreScore(@PathVariable UUID id,
+    @PostMapping("/{id}/planning-cycles/{strategicPlanId}/calculate-pre-score")
+    public PreScoreResponse calculatePreScore(@PathVariable UUID id, @PathVariable UUID strategicPlanId,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
-        return demands.calculatePreScore(id, actor(user));
+        return demands.calculatePreScore(id, strategicPlanId, actor(user));
     }
 
-    @PostMapping("/{id}/calculate-complexity")
-    public DemandComplexityResponse calculateComplexity(@PathVariable UUID id,
+    @PostMapping("/{id}/planning-cycles/{strategicPlanId}/calculate-complexity")
+    public DemandComplexityResponse calculateComplexity(@PathVariable UUID id, @PathVariable UUID strategicPlanId,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
-        return complexity.calculate(id, actor(user));
+        return complexity.calculate(id, strategicPlanId, actor(user));
     }
 
-    @PostMapping("/{id}/reprioritize-portfolio-rank")
+    @PostMapping("/{id}/planning-cycles/{strategicPlanId}/reprioritize-portfolio-rank")
     public ReprioritizePortfolioRankResponse reprioritizePortfolioRank(@PathVariable UUID id,
+            @PathVariable UUID strategicPlanId,
             @Valid @RequestBody ReprioritizePortfolioRankRequest req,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
-        return demands.reprioritizePortfolioRank(id, req, actor(user));
+        return demands.reprioritizePortfolioRank(id, strategicPlanId, req, actor(user));
     }
 
     @GetMapping("/{id}/participating-directions")

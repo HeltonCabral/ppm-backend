@@ -1,6 +1,7 @@
 package cvt.cv.ppmbackend.controller;
 
 import cvt.cv.ppmbackend.dto.OperationalPlanCreateRequest;
+import cvt.cv.ppmbackend.dto.OperationalPlanOverviewDtos.Overview;
 import cvt.cv.ppmbackend.dto.OperationalPlanSummary;
 import cvt.cv.ppmbackend.entity.OperationalPlan;
 import cvt.cv.ppmbackend.entity.OperationalPlanBaseline;
@@ -29,6 +30,11 @@ public class OperationalPlanController
     @GetMapping
     public List<OperationalPlan> findAll() {
         return plans.search(null, null, null);
+    }
+
+    @GetMapping("/overview")
+    public Overview overview() {
+        return plans.overview();
     }
 
     //@GetMapping(params = { "strategicPlanId" })

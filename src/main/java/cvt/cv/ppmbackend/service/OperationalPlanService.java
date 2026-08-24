@@ -1,23 +1,34 @@
 package cvt.cv.ppmbackend.service;
 
 import cvt.cv.ppmbackend.dto.OperationalPlanCreateRequest;
+import cvt.cv.ppmbackend.dto.OperationalPlanOverviewDtos.Metrics;
+import cvt.cv.ppmbackend.dto.OperationalPlanOverviewDtos.NextOperationalCycle;
+import cvt.cv.ppmbackend.dto.OperationalPlanOverviewDtos.OperationalPlanHistoryItem;
+import cvt.cv.ppmbackend.dto.OperationalPlanOverviewDtos.OperationalPlanRef;
+import cvt.cv.ppmbackend.dto.OperationalPlanOverviewDtos.Overview;
 import cvt.cv.ppmbackend.dto.OperationalPlanSummary;
+import cvt.cv.ppmbackend.entity.DemandPlanningCycle;
 import cvt.cv.ppmbackend.entity.OperationalPlan;
 import cvt.cv.ppmbackend.entity.OperationalPlanBaseline;
 import cvt.cv.ppmbackend.entity.Project;
 import cvt.cv.ppmbackend.entity.ProjectExecution;
 import cvt.cv.ppmbackend.entity.StrategicPlan;
+import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import cvt.cv.ppmbackend.enums.ExecutiveStatus;
 import cvt.cv.ppmbackend.enums.OperationalPlanStatus;
 import cvt.cv.ppmbackend.exception.BadRequestException;
+import cvt.cv.ppmbackend.repository.DemandPlanningCycleRepository;
 import cvt.cv.ppmbackend.repository.OperationalPlanBaselineRepository;
 import cvt.cv.ppmbackend.repository.OperationalPlanRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -28,14 +39,16 @@ public class OperationalPlanService extends AbstractCrudService<OperationalPlan,
     private final OperationalPlanBaselineRepository baselines;
     private final StrategicPlanService strategicPlans;
     private final ProjectService projects;
+    private final DemandPlanningCycleRepository planningCycles;
 
     public OperationalPlanService(OperationalPlanRepository r, OperationalPlanBaselineRepository b,
-            StrategicPlanService sp, ProjectService p) {
+            StrategicPlanService sp, ProjectService p, DemandPlanningCycleRepository planningCycles) {
         super(r, "Plano operacional");
         plans = r;
         baselines = b;
         strategicPlans = sp;
         projects = p;
+        this.planningCycles = planningCycles;
     }
 
     protected OperationalPlan newEntity() {
@@ -131,6 +144,80 @@ public class OperationalPlanService extends AbstractCrudService<OperationalPlan,
     public List<OperationalPlanBaseline> baselinesOf(UUID id) {
         findById(id);
         return baselines.findByOperationalPlan_IdOrderByCapturedAtDesc(id);
+    }
+
+    @Transactional(readOnly = true)
+    public Overview overview() {
+        Optional<StrategicPlan> activeStrategicPlan = strategicPlans.findActivePlan();
+        Optional<StrategicPlan> planningStrategicPlan = strategicPlans.findCurrentPlanningPlan();
+
+        Optional<OperationalPlan> activePlan = activeStrategicPlan
+                .flatMap(sp -> currentOperationalPlan(plans.findByStrategicPlan_Id(sp.getId())));
+        Optional<OperationalPlan> planningPlan = planningStrategicPlan
+                .flatMap(sp -> currentOperationalPlan(plans.findByStrategicPlan_Id(sp.getId())));
+
+        OperationalPlanRef activeRef = activePlan.map(this::toRef).orElse(null);
+        OperationalPlanRef planningRef = planningPlan.map(this::toRef).orElse(null);
+
+        Metrics metrics = planningPlan.map(p -> progressOf(p.getId()))
+                .orElse(new Metrics(0, 0, 0, 0, 0, 0, 0));
+
+        int nextFiscalYear = planningPlan.map(OperationalPlan::getFiscalYear)
+                .or(() -> activePlan.map(p -> p.getFiscalYear() + 1))
+                .orElseGet(() -> LocalDate.now().getYear() + 1);
+        boolean canStart = planningStrategicPlan
+                .map(sp -> plans.findByStrategicPlan_IdAndFiscalYear(sp.getId(), nextFiscalYear).isEmpty())
+                .orElse(activeStrategicPlan
+                        .map(sp -> plans.findByStrategicPlan_IdAndFiscalYear(sp.getId(), nextFiscalYear).isEmpty())
+                        .orElse(true));
+        NextOperationalCycle nextOperationalCycle = new NextOperationalCycle(nextFiscalYear, canStart);
+
+        List<OperationalPlanHistoryItem> history = plans.findAll().stream()
+                .sorted(Comparator.comparing(OperationalPlan::getFiscalYear).reversed())
+                .map(this::toHistoryItem)
+                .toList();
+
+        return new Overview(activeRef, planningRef, metrics, nextOperationalCycle, history);
+    }
+
+    private Optional<OperationalPlan> currentOperationalPlan(List<OperationalPlan> candidates) {
+        if (candidates.isEmpty()) {
+            return Optional.empty();
+        }
+        int currentYear = LocalDate.now().getYear();
+        return candidates.stream()
+                .filter(p -> p.getFiscalYear() != null && p.getFiscalYear() <= currentYear)
+                .max(Comparator.comparing(OperationalPlan::getFiscalYear))
+                .or(() -> candidates.stream().min(Comparator.comparing(OperationalPlan::getFiscalYear)));
+    }
+
+    private OperationalPlanRef toRef(OperationalPlan p) {
+        StrategicPlan sp = p.getStrategicPlan();
+        return new OperationalPlanRef(p.getId(), p.getName(), p.getFiscalYear(), p.getStatus(),
+                sp != null ? sp.getId() : null, sp != null ? sp.getName() : null,
+                p.getApprovedBudget(), p.getTotalBudget());
+    }
+
+    private OperationalPlanHistoryItem toHistoryItem(OperationalPlan p) {
+        StrategicPlan sp = p.getStrategicPlan();
+        return new OperationalPlanHistoryItem(p.getId(), p.getName(), p.getFiscalYear(), p.getStatus(),
+                sp != null ? sp.getId() : null, sp != null ? sp.getName() : null,
+                projects.countByOperationalPlan(p.getId()));
+    }
+
+    private Metrics progressOf(UUID operationalPlanId) {
+        List<DemandPlanningCycle> cycles = planningCycles.findAllByOperationalPlan_Id(operationalPlanId);
+        long total = cycles.size();
+        long approved = cycles.stream().filter(c -> c.getStatus() == DemandPlanningStatus.APPROVED).count();
+        long conditionallyApproved = cycles.stream()
+                .filter(c -> c.getStatus() == DemandPlanningStatus.CONDITIONALLY_APPROVED).count();
+        long backlog = cycles.stream().filter(c -> c.getStatus() == DemandPlanningStatus.BACKLOG).count();
+        long deliberated = approved + conditionallyApproved + backlog;
+        long pending = total - deliberated;
+        int deliberationPercentage = total == 0 ? 0 : (int) Math.round(deliberated * 100.0 / total);
+        long projectsGenerated = projects.countByOperationalPlan(operationalPlanId);
+        return new Metrics(total, approved, conditionallyApproved, backlog, pending, deliberationPercentage,
+                projectsGenerated);
     }
 
     @Transactional(readOnly = true)

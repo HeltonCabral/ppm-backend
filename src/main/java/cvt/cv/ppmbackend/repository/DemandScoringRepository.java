@@ -7,7 +7,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface DemandScoringRepository extends JpaRepository<DemandScoring, UUID> {
-    List<DemandScoring> findByDemandIdOrderByCriterionOrderIndexAsc(UUID demandId);
+    List<DemandScoring> findByPlanningCycle_IdOrderByCriterionOrderIndexAsc(UUID planningCycleId);
 
-    Optional<DemandScoring> findByDemandIdAndCriterionId(UUID demandId, UUID criterionId);
+    Optional<DemandScoring> findByPlanningCycle_IdAndCriterion_Id(UUID planningCycleId, UUID criterionId);
 }

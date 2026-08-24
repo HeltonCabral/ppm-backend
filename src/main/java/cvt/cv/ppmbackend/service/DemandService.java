@@ -1,11 +1,13 @@
 package cvt.cv.ppmbackend.service;
 
 import cvt.cv.ppmbackend.dto.DemandDtos.*;
-import cvt.cv.ppmbackend.dto.DemandScoringDtos.DemandScoringResponse;
+import cvt.cv.ppmbackend.dto.DemandPlanningCycleDtos;
+import cvt.cv.ppmbackend.dto.DemandPlanningCycleDtos.CurrentCycleSummary;
 import cvt.cv.ppmbackend.dto.CommitteeSuggestionResponse;
 import cvt.cv.ppmbackend.dto.PreScoreResponse;
 import cvt.cv.ppmbackend.entity.*;
 import cvt.cv.ppmbackend.enums.CommitteeStatus;
+import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import cvt.cv.ppmbackend.enums.Priority;
 import cvt.cv.ppmbackend.enums.ProjectStatus;
 import cvt.cv.ppmbackend.exception.BadRequestException;
@@ -24,81 +26,73 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.*;
 
+import static cvt.cv.ppmbackend.enums.DemandPlanningStatus.*;
+
 @Service
 @Transactional
 public class DemandService {
-    private static final String STATUS_IN_ANALYSIS = "IN_ANALYSIS";
-    private static final String STATUS_IN_PRIORITIZATION = "IN_PRIORITIZATION";
-    private static final String STATUS_DRAFT = "DRAFT";
-    private static final String STATUS_IN_STRATEGIC_COMMITTEE = "IN_STRATEGIC_COMMITTEE";
     private static final Set<String> PRIORITY_CODES = Set.of("LOW", "MEDIUM", "HIGH", "CRITICAL");
     private static final Set<String> EFFORT_CODES = Set.of("LOW", "MEDIUM", "HIGH");
-    private static final Set<String> STATUS_CODES = Set.of(STATUS_DRAFT,STATUS_IN_ANALYSIS, STATUS_IN_PRIORITIZATION,
-            "PRIORITIZED", STATUS_IN_STRATEGIC_COMMITTEE, "APPROVED", "BACKLOG", "CONVERTED_TO_PROJECT", "ARCHIVED",
-            "UNDER_PRIORITIZATION", "READY_FOR_COMMITTEE");
-    private static final Set<String> CAPACITY_CODES = Set.of("NOT_ANALYZED", "AVAILABLE", "LIMITED", "UNAVAILABLE");
-    private static final Set<String> RISK_CODES = Set.of("NOT_EVALUATED", "LOW", "MEDIUM", "HIGH", "CRITICAL");
-    private static final Set<String> APPROVAL_CODES = Set.of("NORMAL", "CONDITIONAL");
-    private static final Set<String> COMMITTEE_CODES = Set.of("APPROVED", "CONDITIONALLY_APPROVED", "REVISION_REQUESTED", "BACKLOG");
 
     private final DemandRepository demands;
+    private final DemandPlanningCycleRepository planningCycles;
     private final DemandAttachmentRepository attachments;
     private final DemandHistoryRepository history;
     private final DemandParticipatingDirectionRepository participatingDirections;
     private final DemandCodeService codeService;
     private final DemandHistoryService historyService;
-    private final StrategicPlanService strategicPlans;
-    private final OperationalPlanService operationalPlans;
-    private final StrategicPillarService pillars;
-    private final StrategicObjectiveService objectives;
-    private final ProgramService programs;
     private final CommitteeService committees;
     private final CommitteeSuggestionService committeeSuggestions;
     private final ProjectService projects;
+    private final ProgramService programs;
+    private final OperationalPlanService operationalPlans;
     private final LookupValueService lookups;
     private final DemandScoringService scoringService;
     private final DemandScoreLifecycleService scoreLifecycle;
     private final DemandPreScoreService preScoreService;
     private final DemandProfileRequirementService profileRequirements;
+    private final SupplierRepository supplierRepository;
+    private final DemandPlanningCycleService planningCycleService;
 
-    public DemandService(DemandRepository demands, DemandAttachmentRepository attachments, DemandHistoryRepository history,
+    public DemandService(DemandRepository demands, DemandPlanningCycleRepository planningCycles,
+            DemandAttachmentRepository attachments, DemandHistoryRepository history,
             DemandParticipatingDirectionRepository participatingDirections,
-            DemandCodeService codeService, DemandHistoryService historyService, StrategicPlanService strategicPlans,
-            OperationalPlanService operationalPlans, StrategicPillarService pillars, StrategicObjectiveService objectives,
-            ProgramService programs, CommitteeService committees, CommitteeSuggestionService committeeSuggestions,
-            ProjectService projects, LookupValueService lookups,
+            DemandCodeService codeService, DemandHistoryService historyService,
+            CommitteeService committees, CommitteeSuggestionService committeeSuggestions,
+            ProjectService projects, ProgramService programs, OperationalPlanService operationalPlans,
+            LookupValueService lookups,
             DemandScoringService scoringService, DemandScoreLifecycleService scoreLifecycle,
-            DemandPreScoreService preScoreService, DemandProfileRequirementService profileRequirements) {
+            DemandPreScoreService preScoreService, DemandProfileRequirementService profileRequirements,
+            SupplierRepository supplierRepository, DemandPlanningCycleService planningCycleService) {
         this.demands = demands;
+        this.planningCycles = planningCycles;
         this.attachments = attachments;
         this.history = history;
         this.participatingDirections = participatingDirections;
         this.codeService = codeService;
         this.historyService = historyService;
-        this.strategicPlans = strategicPlans;
-        this.operationalPlans = operationalPlans;
-        this.pillars = pillars;
-        this.objectives = objectives;
-        this.programs = programs;
         this.committees = committees;
         this.committeeSuggestions = committeeSuggestions;
         this.projects = projects;
+        this.programs = programs;
+        this.operationalPlans = operationalPlans;
         this.lookups = lookups;
         this.scoringService = scoringService;
         this.scoreLifecycle = scoreLifecycle;
         this.preScoreService = preScoreService;
         this.profileRequirements = profileRequirements;
+        this.supplierRepository = supplierRepository;
+        this.planningCycleService = planningCycleService;
     }
 
     public DemandResponse create(Create req, String actorId) {
         Demand demand = new Demand();
         demand.setCode(codeService.nextCode());
-        demand.setStatus(STATUS_DRAFT);
         demand.setCreatedBy(actor(actorId));
         demand.setUpdatedBy(actor(actorId));
-        validateReadOnlyScoreFields(req.scoreTotal(), req.portfolioRank(), req.directionRank(), demand, true);
-        apply(req, demand, true);
+        apply(req, demand);
         Demand saved = demands.save(demand);
+        DemandPlanningCycle cycle = planningCycleService.createInitialCycle(saved, actor(actorId));
         if (req.attachments() != null) {
             req.attachments().forEach(a -> addAttachment(saved, new AttachmentCreate(a.name(), a.url(), a.contentType()),
                     actorId));
@@ -119,22 +113,18 @@ public class DemandService {
             });
         }
         profileRequirements.sync(saved, req.profileRequirements());
-        historyService.log(saved, "CREATED", null, saved.getStatus(), "Demanda criada", actor(actorId), actor(actorId),
-                Map.of("code", saved.getCode()));
+        historyService.log(saved, "CREATED", null, cycle.getStatus().name(), "Demanda criada", actor(actorId),
+                actor(actorId), Map.of("code", saved.getCode()));
         return map(saved);
     }
 
     @Transactional
     public DemandResponse update(UUID id, Update req, String actorId) {
         Demand demand = entity(id);
-        String old = demand.getStatus();
-        BigDecimal previousScore = demand.getScoreTotal();
-        String previousDirection = demand.getDirectionCode();
         ScoreRelevantState previousScoreInputs = scoreRelevantState(demand);
         ComplexityRelevantState previousComplexityInputs = complexityRelevantState(demand);
         LocalDate previousDesiredDate = demand.getDesiredDate();
-        validateReadOnlyScoreFields(req.scoreTotal(), req.portfolioRank(), req.directionRank(), demand, false);
-        apply(toCreate(req), demand, false);
+        apply(toCreate(req), demand);
         handleScoreRelevantChanges(demand, previousScoreInputs);
         invalidateComplexityIfNeeded(demand, previousComplexityInputs,
                 req.participatingDirections() != null || req.profileRequirements() != null);
@@ -142,7 +132,6 @@ public class DemandService {
         demand.setUpdatedBy(actor(actorId));
         Demand saved = demands.save(demand);
 
-        // Processar direções participantes
         if (req.participatingDirections() != null) {
             participatingDirections.deleteByDemandId(id);
             req.participatingDirections().forEach(pd -> {
@@ -161,24 +150,18 @@ public class DemandService {
         }
         profileRequirements.sync(saved, req.profileRequirements());
 
-        recomputeRanksIfNeeded(previousScore, previousDirection, saved);
-        historyService.log(saved, "UPDATED", old, saved.getStatus(), "Demanda atualizada", actor(actorId),
-                actor(actorId), Map.of());
+        historyService.log(saved, "UPDATED", null, null, "Demanda atualizada", actor(actorId), actor(actorId), Map.of());
         return map(saved);
     }
 
     @Transactional
     public DemandResponse patch(UUID id, Patch req, String actorId) {
         Demand d = entity(id);
-        BigDecimal previousScore = d.getScoreTotal();
-        String previousDirection = d.getDirectionCode();
         ScoreRelevantState previousScoreInputs = scoreRelevantState(d);
         ComplexityRelevantState previousComplexityInputs = complexityRelevantState(d);
         LocalDate previousDesiredDate = d.getDesiredDate();
-        validateReadOnlyScoreFields(req.scoreTotal(), req.portfolioRank(), req.directionRank(), d, false);
         Create merged = mergePatch(d, req);
-        String old = d.getStatus();
-        apply(merged, d, false);
+        apply(merged, d);
         handleScoreRelevantChanges(d, previousScoreInputs);
         invalidateComplexityIfNeeded(d, previousComplexityInputs,
                 req.participatingDirections() != null || req.profileRequirements() != null);
@@ -186,7 +169,6 @@ public class DemandService {
         d.setUpdatedBy(actor(actorId));
         Demand saved = demands.save(d);
 
-        // Processar direções participantes se fornecidas
         if (req.participatingDirections() != null) {
             participatingDirections.deleteByDemandId(id);
             req.participatingDirections().forEach(pd -> {
@@ -205,8 +187,7 @@ public class DemandService {
         }
         profileRequirements.sync(saved, req.profileRequirements());
 
-        recomputeRanksIfNeeded(previousScore, previousDirection, saved);
-        historyService.log(saved, "UPDATED", old, saved.getStatus(), "Demanda atualizada parcialmente", actor(actorId),
+        historyService.log(saved, "UPDATED", null, null, "Demanda atualizada parcialmente", actor(actorId),
                 actor(actorId), Map.of());
         return map(saved);
     }
@@ -214,73 +195,52 @@ public class DemandService {
     @Transactional
     public void delete(UUID id, String actorId) {
         Demand d = entity(id);
-        BigDecimal previousScore = d.getScoreTotal();
-        String previousDirection = d.getDirectionCode();
-        String oldStatus = norm(d.getStatus());
-        scoreLifecycle.applyStatusTransition(d, oldStatus, "ARCHIVED", "Demanda arquivada por eliminação lógica");
-        d.setStatus("ARCHIVED");
-        syncStrategicCommitteeStage(d, oldStatus, "ARCHIVED");
+        List<DemandPlanningCycle> openCycles = planningCycles.findAllByDemand_IdOrderByCycleEntryAtDesc(id).stream()
+                .filter(c -> c.getStatus() != CLOSED)
+                .toList();
+        for (DemandPlanningCycle cycle : openCycles) {
+            planningCycleService.transitionStatus(cycle, CLOSED, "Demanda arquivada por eliminação lógica", actorId);
+        }
         d.setDeletedAt(Instant.now());
         d.setUpdatedBy(actor(actorId));
-        recomputeRanksIfNeeded(previousScore, previousDirection, d);
-        historyService.log(d, "ARCHIVED", oldStatus, "ARCHIVED", "Demanda arquivada por eliminação lógica",
+        historyService.log(d, "ARCHIVED", null, "CLOSED", "Demanda arquivada por eliminação lógica",
                 actor(actorId), actor(actorId), Map.of());
     }
 
     @Transactional
-    public DemandResponse changeStatus(UUID id, StatusPatch req, String actorId) {
+    public DemandResponse changeStatus(UUID id, UUID strategicPlanId, DemandPlanningCycleDtos.TransitionRequest req,
+            String actorId) {
         Demand d = entity(id);
-        BigDecimal previousScore = d.getScoreTotal();
-        String previousDirection = d.getDirectionCode();
-        String from = norm(d.getStatus());
-        String requestedStatus = norm(req.status());
-        String to = normalizeStatusTransitionTarget(requestedStatus);
-        validateStatusValue(to);
-        validateTransition(d, from, to, req.reason());
-        scoreLifecycle.applyStatusTransition(d, from, to, req.reason());
-        d.setStatus(to);
-        syncStrategicCommitteeStage(d, from, to);
-        d.setUpdatedBy(actor(actorId));
-        if ("CONDITIONALLY_APPROVED".equals(requestedStatus)) {
-            d.setApprovalType("CONDITIONAL");
-            d.setCommitteeDecision("CONDITIONALLY_APPROVED");
-        }
-        if ("APPROVED".equals(to) && d.getCommitteeDecision() == null)
-            d.setCommitteeDecision("APPROVED");
-        if ("BACKLOG".equals(to)) {
-            d.setCommitteeDecision("BACKLOG");
-            d.setRejectionReason(req.reason());
-        }
-        if (STATUS_IN_ANALYSIS.equals(to) && "BACKLOG".equals(from)) {
-            d.setCommitteeDecision(null);
-            d.setRejectionReason(null);
-        }
-        Demand saved = demands.save(d);
-        recomputeRanksIfNeeded(previousScore, previousDirection, saved);
-        String event = eventTypeForTransition(to);
-        historyService.log(saved, event, from, to, req.reason(), actor(actorId), actor(actorId), Map.of());
-        return map(saved);
+        DemandPlanningCycle cycle = planningCycleService.resolveForMutation(id, strategicPlanId);
+        planningCycleService.transitionStatus(cycle, req.status(), req.reason(), actor(actorId));
+        return map(d);
     }
 
     @Transactional
-    public DemandResponse sendToStrategicCommittee(UUID id, String reason, String actorId) {
-        return changeStatus(id, new StatusPatch(STATUS_IN_STRATEGIC_COMMITTEE, reason), actorId);
+    public DemandResponse sendToStrategicCommittee(UUID id, UUID strategicPlanId, String reason, String actorId) {
+        Demand d = entity(id);
+        DemandPlanningCycle cycle = planningCycleService.resolveForMutation(id, strategicPlanId);
+        planningCycleService.sendToStrategicCommittee(cycle, reason, actor(actorId));
+        return map(d);
     }
 
     @Transactional
-    public List<DemandResponse> sendToStrategicCommitteeBulk(List<UUID> demandIds, String reason, String actorId) {
+    public List<DemandResponse> sendToStrategicCommitteeBulk(List<UUID> demandIds, UUID strategicPlanId, String reason,
+            String actorId) {
         return demandIds.stream()
                 .distinct()
-                .map(demandId -> sendToStrategicCommittee(demandId, reason, actorId))
+                .map(demandId -> sendToStrategicCommittee(demandId, strategicPlanId, reason, actorId))
                 .toList();
     }
 
-    public CommitteeSuggestionResponse committeeSuggestion(UUID id) {
-        return committeeSuggestions.suggest(entity(id));
+    public CommitteeSuggestionResponse committeeSuggestion(UUID id, UUID strategicPlanId) {
+        Demand demand = entity(id);
+        DemandPlanningCycle cycle = planningCycleService.resolveForMutation(id, strategicPlanId);
+        return committeeSuggestions.suggest(demand, cycle);
     }
 
     @Transactional
-    public List<DemandResponse> listInPriorizationByUsername(String username) {
+    public List<DemandResponse> listInPriorizationByUsername(String username, UUID strategicPlanId) {
         if (username == null || username.isBlank()) {
             throw new BadRequestException("username é obrigatório");
         }
@@ -294,43 +254,32 @@ public class DemandService {
         List<UUID> committeeIds = userCommittees.stream()
             .map(Committee::getId)
             .toList();
-        return demands.findByResponsibleCommittee_IdInAndStatusAndDeletedAtIsNullOrderByPreScoreDescCreatedAtDesc(
-                committeeIds,
-                        "IN_PRIORITIZATION")
-                .stream()
-                .map(this::map)
+
+        Specification<DemandPlanningCycle> spec = (root, query, cb) -> cb.and(
+                cb.equal(root.get("strategicPlan").get("id"), strategicPlanId),
+                root.get("responsibleCommittee").get("id").in(committeeIds),
+                cb.equal(root.get("status"), PRIORITIZATION));
+        return planningCycles.findAll(spec, Sort.by(Sort.Direction.DESC, "preScore")).stream()
+                .map(cycle -> map(cycle.getDemand()))
                 .toList();
     }
 
     @Transactional
-    public DemandResponse assignCommittee(UUID id, AssignCommitteeRequest request, String actorId) {
+    public DemandResponse assignCommittee(UUID id, UUID strategicPlanId, AssignCommitteeRequest request, String actorId) {
         Demand demand = entity(id);
         Committee committee = committees.findActiveEntityById(request.committeeId());
-
-        String previousStatus = demand.getStatus();
-        demand.setResponsibleCommittee(committee);
-        demand.setStatus("IN_PRIORITIZATION");
-        syncStrategicCommitteeStage(demand, previousStatus, "IN_PRIORITIZATION");
-        demand.setUpdatedBy(actor(actorId));
-
-        scoreLifecycle.applyStatusTransition(demand, previousStatus, "IN_PRIORITIZATION",
-                "Status alterado automaticamente ao atribuir comité");
-
-        Demand saved = demands.save(demand);
-        historyService.log(saved, "COMMITTEE_ASSIGNED", previousStatus, "IN_PRIORITIZATION",
-                "Comité responsável atribuído e status alterado para Em Priorização",
-                actor(actorId), actor(actorId),
-                Map.of("committeeId", committee.getId().toString()));
-        return map(saved);
+        DemandPlanningCycle cycle = planningCycleService.resolveForMutation(id, strategicPlanId);
+        planningCycleService.assignCommittee(cycle, committee, actor(actorId));
+        return map(demand);
     }
 
     @Transactional
-    public PreScoreResponse calculatePreScore(UUID id, String actorId) {
+    public PreScoreResponse calculatePreScore(UUID id, UUID strategicPlanId, String actorId) {
         Demand demand = entity(id);
-        DemandPreScoreService.PreScoreResult result = preScoreService.calculate(demand);
-        demand.setUpdatedBy(actor(actorId));
-        demands.save(demand);
-        historyService.log(demand, "PRE_SCORE_CALCULATED", demand.getStatus(), demand.getStatus(),
+        DemandPlanningCycle cycle = planningCycleService.resolveForMutation(id, strategicPlanId);
+        DemandPreScoreService.PreScoreResult result = preScoreService.calculate(demand, cycle);
+        planningCycles.save(cycle);
+        historyService.log(demand, "PRE_SCORE_CALCULATED", cycle.getStatus().name(), cycle.getStatus().name(),
                 "Pré-score calculado", actor(actorId), actor(actorId),
                 Map.of("preScore", result.preScore().toString(), "classification", result.preScoreClassification()));
         return new PreScoreResponse(result.preScore(), result.preScoreClassification());
@@ -353,31 +302,17 @@ public class DemandService {
     }
 
     @Transactional
-    public ConvertResponse convertToProject(UUID demandId, ConvertToProject req, String actorId) {
+    public ConvertResponse convertToProject(UUID demandId, UUID strategicPlanId, ConvertToProject req, String actorId) {
         Demand d = entity(demandId);
-        BigDecimal previousScore = d.getScoreTotal();
-        String previousDirection = d.getDirectionCode();
-        if (!"APPROVED".equals(d.getStatus())) {
-            throw domain(HttpStatus.CONFLICT, "DEMAND_NOT_APPROVED", "Somente demandas aprovadas podem ser convertidas",
-                    Map.of("status", d.getStatus()));
-        }
-        if (d.getConvertedProject() != null) {
-            throw domain(HttpStatus.CONFLICT, "DEMAND_ALREADY_CONVERTED", "Demanda já convertida",
-                    Map.of("projectId", d.getConvertedProject().getId()));
-        }
-        if (!scoreLifecycle.isValid(d)) {
-            throw domain(HttpStatus.CONFLICT, "CONVERSION_REQUIRES_VALID_SCORE",
-                    "A demanda aprovada deve possuir um score válido antes da conversão",
-                    Map.of("scoreStatus", Optional.ofNullable(d.getScoreStatus()).orElse("")));
-        }
+        DemandPlanningCycle cycle = planningCycleService.resolveForMutation(demandId, strategicPlanId);
 
         Program program = req.programId() != null ? programs.findById(req.programId())
-                : Optional.ofNullable(d.getProgram())
+                : Optional.ofNullable(cycle.getProgram())
                         .orElseThrow(() -> new BadRequestException("programId é obrigatório para conversão"));
         OperationalPlan operationalPlan = req.operationalPlanId() != null
                 ? operationalPlans.findById(req.operationalPlanId())
-                : d.getOperationalPlan();
-        validateConversionOperationalPlan(d, operationalPlan);
+                : cycle.getOperationalPlan();
+        validateConversionOperationalPlan(cycle, operationalPlan);
         LookupValue domain = resolveConversionDomain(d, req.domainId());
         LookupValue projectType = req.projectTypeId() == null ? null
                 : lookups.requireActiveInCategory(req.projectTypeId(), "PROJECT_TYPE");
@@ -405,7 +340,7 @@ public class DemandService {
         if (budget != null && budget.compareTo(BigDecimal.ZERO) < 0) {
             throw new BadRequestException("budget não pode ser negativo");
         }
-        Integer ranking = req.ranking() != null ? req.ranking() : d.getPortfolioRank();
+        Integer ranking = req.ranking() != null ? req.ranking() : cycle.getPortfolioRank();
         if (ranking != null && ranking < 0) {
             throw new BadRequestException("ranking não pode ser negativo");
         }
@@ -440,48 +375,41 @@ public class DemandService {
         p.setBudgetLine(firstNonBlank(req.budgetLine(), domain != null ? domain.getCode() : null));
         p.setBudget(budget);
         p.setPlanType(req.planType());
-        Project savedProject = projects.saveFromDemand(p, d, plannedStartDate, req.startDate(), plannedEndDate,
+        Project savedProject = projects.saveFromDemand(p, d, cycle, plannedStartDate, req.startDate(), plannedEndDate,
                 req.endDate(), req.delayReasons(), actor(actorId));
-        scoreLifecycle.applyStatusTransition(d, "APPROVED", "CONVERTED_TO_PROJECT",
-                "Demanda convertida em projeto");
-        d.setConvertedProject(savedProject);
-        d.setStatus("CONVERTED_TO_PROJECT");
-        syncStrategicCommitteeStage(d, "APPROVED", "CONVERTED_TO_PROJECT");
-        d.setUpdatedBy(actor(actorId));
-        Demand savedDemand = demands.save(d);
-        recomputeRanksIfNeeded(previousScore, previousDirection, savedDemand);
-
-        historyService.log(savedDemand, "CONVERTED_TO_PROJECT", "APPROVED", "CONVERTED_TO_PROJECT",
-                "Demanda convertida em projeto", actor(actorId), actor(actorId),
-                Map.of("projectId", savedProject.getId().toString()));
+        DemandPlanningCycle convertedCycle = planningCycleService.convertToProject(cycle, savedProject, actor(actorId));
 
         return new ConvertResponse(
-                new DemandConvertInfo(savedDemand.getId(), savedDemand.getCode(), savedDemand.getStatus(),
-                        savedProject.getId(), savedDemand.getScoreStatus(), savedDemand.getScoreCalculatedAt(),
-                        savedDemand.getScoreInvalidatedAt(), savedDemand.getScoreInvalidationReason(),
-                        scoreLifecycle.previousScoreSnapshot(savedDemand)),
+                new DemandConvertInfo(d.getId(), d.getCode(), convertedCycle.getStatus(),
+                        savedProject.getId(), convertedCycle.getScoreStatus(), convertedCycle.getScoreCalculatedAt(),
+                        convertedCycle.getScoreInvalidatedAt(), convertedCycle.getScoreInvalidationReason(),
+                        scoreLifecycle.previousScoreSnapshot(convertedCycle)),
                 mapProjectConvertInfo(savedProject));
     }
 
     @Transactional
-    public PagedDemandsResponse listPortfolioRanked(int page, int size, String directionCode, String areaCode) {
-        Specification<Demand> spec = (root, query, cb) -> cb.and(
-                cb.isNull(root.get("deletedAt")),
+    public PagedDemandsResponse listPortfolioRanked(int page, int size, UUID strategicPlanId, String directionCode,
+            String areaCode) {
+        Specification<DemandPlanningCycle> spec = (root, query, cb) -> cb.and(
+                cb.equal(root.get("strategicPlan").get("id"), strategicPlanId),
                 cb.isNotNull(root.get("portfolioRank")));
         if (directionCode != null && !directionCode.isBlank())
-            spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("directionCode")), directionCode.trim().toUpperCase(Locale.ROOT)));
+            spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("demand").get("directionCode")),
+                    directionCode.trim().toUpperCase(Locale.ROOT)));
         if (areaCode != null && !areaCode.isBlank())
-            spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("areaCode")), areaCode.trim().toUpperCase(Locale.ROOT)));
-        Page<Demand> p = demands.findAll(spec, PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "portfolioRank")));
-        return new PagedDemandsResponse(p.getContent().stream().map(this::map).toList(), page, size, p.getTotalElements(),
-                p.getTotalPages());
+            spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("demand").get("areaCode")),
+                    areaCode.trim().toUpperCase(Locale.ROOT)));
+        Page<DemandPlanningCycle> p = planningCycles.findAll(spec,
+                PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "portfolioRank")));
+        return new PagedDemandsResponse(p.getContent().stream().map(c -> map(c.getDemand())).toList(), page, size,
+                p.getTotalElements(), p.getTotalPages());
     }
 
     @Transactional
-    public PagedDemandsResponse list(int page, int size, String sort, String search, List<String> status, String type,
-            String origin, String initialPriority, String urgency, UUID strategicPlanId, UUID operationalPlanId,
-            UUID strategicPillarId, UUID strategicObjectiveId, UUID programId, String requester, String businessArea,
-            LocalDate createdFrom, LocalDate createdTo) {
+    public PagedDemandsResponse list(int page, int size, String sort, String search, List<DemandPlanningStatus> status,
+            String type, String origin, String initialPriority, String urgency, UUID strategicPlanId,
+            UUID operationalPlanId, UUID strategicPillarId, UUID strategicObjectiveId, UUID programId,
+            String requester, String businessArea, LocalDate createdFrom, LocalDate createdTo) {
         String sortField = sort == null || sort.isBlank() ? "createdAt" : sort;
         Specification<Demand> spec = (root, query, cb) -> cb.isNull(root.get("deletedAt"));
         if (search != null && !search.isBlank()) {
@@ -497,17 +425,6 @@ public class DemandService {
                     cb.like(cb.lower(root.get("directionCode")), like),
                     cb.like(cb.lower(root.get("easyVistaRef")), like)));
         }
-        if (status != null && !status.isEmpty()) {
-            Set<String> normalizedStatuses = status.stream()
-                    .filter(Objects::nonNull)
-                    .map(String::trim)
-                    .filter(s -> !s.isBlank())
-                    .map(this::norm)
-                    .collect(java.util.stream.Collectors.toSet());
-            if (!normalizedStatuses.isEmpty()) {
-                spec = spec.and((r, q, cb) -> r.get("status").in(normalizedStatuses));
-            }
-        }
         if (type != null)
             spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("type").get("code")), norm(type)));
         if (origin != null)
@@ -516,16 +433,6 @@ public class DemandService {
             spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("initialPriority")), norm(initialPriority)));
         if (urgency != null)
             spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("urgency")), norm(urgency)));
-        if (strategicPlanId != null)
-            spec = spec.and((r, q, cb) -> cb.equal(r.get("strategicPlan").get("id"), strategicPlanId));
-        if (operationalPlanId != null)
-            spec = spec.and((r, q, cb) -> cb.equal(r.get("operationalPlan").get("id"), operationalPlanId));
-        if (strategicPillarId != null)
-            spec = spec.and((r, q, cb) -> cb.equal(r.get("strategicPillar").get("id"), strategicPillarId));
-        if (strategicObjectiveId != null)
-            spec = spec.and((r, q, cb) -> cb.equal(r.get("strategicObjective").get("id"), strategicObjectiveId));
-        if (programId != null)
-            spec = spec.and((r, q, cb) -> cb.equal(r.get("program").get("id"), programId));
         if (requester != null)
             spec = spec.and((r, q, cb) -> cb.like(cb.lower(r.get("requester")), "%" + requester.toLowerCase() + "%"));
         if (businessArea != null)
@@ -537,6 +444,32 @@ public class DemandService {
         if (createdTo != null) {
             Instant to = createdTo.plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
             spec = spec.and((r, q, cb) -> cb.lessThan(r.get("createdAt"), to));
+        }
+
+        boolean cycleFiltered = strategicPlanId != null || operationalPlanId != null || strategicPillarId != null
+                || strategicObjectiveId != null || programId != null || (status != null && !status.isEmpty());
+        if (cycleFiltered) {
+            Specification<DemandPlanningCycle> cycleSpec = (root, query, cb) -> cb.conjunction();
+            if (strategicPlanId != null)
+                cycleSpec = cycleSpec.and((r, q, cb) -> cb.equal(r.get("strategicPlan").get("id"), strategicPlanId));
+            if (operationalPlanId != null)
+                cycleSpec = cycleSpec.and((r, q, cb) -> cb.equal(r.get("operationalPlan").get("id"), operationalPlanId));
+            if (strategicPillarId != null)
+                cycleSpec = cycleSpec.and((r, q, cb) -> cb.equal(r.get("strategicPillar").get("id"), strategicPillarId));
+            if (strategicObjectiveId != null)
+                cycleSpec = cycleSpec
+                        .and((r, q, cb) -> cb.equal(r.get("strategicObjective").get("id"), strategicObjectiveId));
+            if (programId != null)
+                cycleSpec = cycleSpec.and((r, q, cb) -> cb.equal(r.get("program").get("id"), programId));
+            if (status != null && !status.isEmpty())
+                cycleSpec = cycleSpec.and((r, q, cb) -> r.get("status").in(status));
+            Set<UUID> matchingDemandIds = planningCycles.findAll(cycleSpec).stream()
+                    .map(c -> c.getDemand().getId())
+                    .collect(java.util.stream.Collectors.toSet());
+            if (matchingDemandIds.isEmpty()) {
+                return new PagedDemandsResponse(List.of(), page, size, 0, 0);
+            }
+            spec = spec.and((r, q, cb) -> r.get("id").in(matchingDemandIds));
         }
 
         Page<Demand> p = demands.findAll(spec, PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, sortField)));
@@ -558,259 +491,38 @@ public class DemandService {
                 .toList();
     }
 
-    private DemandAttachmentResponse addAttachment(Demand demand, AttachmentCreate req, String actorId) {
-        DemandAttachment att = new DemandAttachment();
-        att.setDemand(demand);
-        att.setName(req.name());
-        att.setUrl(req.url());
-        att.setContentType(req.contentType());
-        att.setCreatedBy(actor(actorId));
-        DemandAttachment saved = attachments.save(att);
-        historyService.log(demand, "ATTACHMENT_ADDED", null, null, "Anexo adicionado", actor(actorId), actor(actorId),
-                Map.of("attachmentId", saved.getId().toString()));
-        return new DemandAttachmentResponse(saved.getId(), saved.getName(), saved.getUrl(), saved.getContentType(),
-                saved.getCreatedAt(), saved.getCreatedBy());
+    @Transactional
+    public DemandPlanningCycleDtos.Response getCycle(UUID demandId, UUID strategicPlanId) {
+        DemandPlanningCycle cycle = planningCycleService.resolveForMutation(demandId, strategicPlanId);
+        return mapCycle(cycle);
     }
 
-    private void apply(Create req, Demand d, boolean creating) {
-        String normalizedOrigin = req.origin() == null || req.origin().isBlank() ? "MANUAL" : norm(req.origin());
-        d.setTitle(req.title());
-        d.setDescription(req.description());
-        d.setRequester(req.requester());
-        d.setAreaName(req.areaName());
-        d.setAreaCode(req.areaCode());
-        d.setDirectionName(req.directionName());
-        d.setDirectionCode(req.directionCode());
-        d.setDirectionParticipationType(req.directionParticipationType());
-        d.setSponsor(req.sponsor());
-        d.setType(req.typeId() == null ? null : lookups.requireActiveInCategory(req.typeId(), "DEMAND_TYPE"));
-        d.setOrigin(normalizedOrigin);
-        d.setEasyVistaRef(req.easyVistaRef());
-        d.setStrategicPlan(req.strategicPlanId() == null ? null : strategicPlans.findById(req.strategicPlanId()));
-        d.setOperationalPlan(req.operationalPlanId() == null ? null : operationalPlans.findById(req.operationalPlanId()));
-        d.setStrategicPillar(req.strategicPillarId() == null ? null : pillars.findById(req.strategicPillarId()));
-        d.setStrategicObjective(
-                req.strategicObjectiveId() == null ? null : objectives.findById(req.strategicObjectiveId()));
-        d.setProgram(req.programId() == null ? null : programs.findById(req.programId()));
-        Committee assignedCommittee = req.committeeId() == null ? null
-                : committees.findActiveEntityById(req.committeeId());
-        d.setResponsibleCommittee(assignedCommittee);
-        d.setDomain(req.domainId() == null ? null : lookups.findById(req.domainId()));
-        d.setImpactedSystem(req.impactedSystem());
-        d.setInitialPriority(req.initialPriority() == null ? null : norm(req.initialPriority()));
-        d.setEstimatedEffort(req.estimatedEffort() == null ? null : norm(req.estimatedEffort()));
-        d.setExpectedImpact(req.expectedImpact());
-        d.setExpectedBenefit(req.expectedBenefit());
-        d.setUrgency(req.urgency() == null ? null : norm(req.urgency()));
-        d.setEstimatedBudget(req.estimatedBudget());
-        d.setDesiredDate(req.desiredDate());
-        d.setNotes(req.notes());
-        d.setCapacityStatus(req.capacityStatus() == null ? "NOT_ANALYZED" : norm(req.capacityStatus()));
-        d.setRiskStatus(req.riskStatus() == null ? "NOT_EVALUATED" : norm(req.riskStatus()));
-        d.setRisksIdentified(req.risksIdentified());
-        d.setDependenciesIdentified(req.dependenciesIdentified());
-        if (creating) {
-            d.setDependenciesCount(0);
-        }
-
-        d.setApprovalType(req.approvalType() == null ? null : norm(req.approvalType()));
-        d.setCommitteeDecision(req.committeeDecision() == null ? null : norm(req.committeeDecision()));
-        d.setRejectionReason(req.rejectionReason());
-
-        if (creating)
-            d.setStatus(STATUS_DRAFT);
-
-        validateBusinessRules(d);
-
-        // Calcular pré-score automaticamente
-        preScoreService.calculate(d);
+    @Transactional
+    public DemandPlanningCycleDtos.Response updateCycleEnrichment(UUID demandId, UUID strategicPlanId,
+            DemandPlanningCycleDtos.EnrichmentRequest req, String actorId) {
+        DemandPlanningCycle cycle = planningCycleService.resolveForMutation(demandId, strategicPlanId);
+        DemandPlanningCycle saved = planningCycleService.updateEnrichment(cycle, req.strategicPillarId(),
+                req.strategicObjectiveId(), req.programId(), req.capacityStatus(), req.riskStatus(), actor(actorId));
+        return mapCycle(saved);
     }
 
-    private void validateBusinessRules(Demand d) {
-        if ("EASYVISTA".equals(norm(d.getOrigin())) && (d.getEasyVistaRef() == null || d.getEasyVistaRef().isBlank())) {
-            throw domain(HttpStatus.UNPROCESSABLE_ENTITY, "EASYVISTA_REFERENCE_REQUIRED",
-                    "easyVistaRef é obrigatório quando origin = EASYVISTA", Map.of());
-        }
-        if (d.getEstimatedBudget() != null && d.getEstimatedBudget().compareTo(BigDecimal.ZERO) < 0)
-            throw new BadRequestException("estimatedBudget não pode ser negativo");
-
-        if (d.getType() == null) {
-            throw new BadRequestException("typeId é obrigatório");
-        }
-        validateLookupOrEnum("DEMAND_ORIGIN", d.getOrigin(), Set.of("MANUAL", "EASYVISTA"));
-        validateLookupOrEnum("PRIORITY", d.getInitialPriority(), PRIORITY_CODES);
-        validateLookupOrEnum("ESTIMATED_EFFORT", d.getEstimatedEffort(), EFFORT_CODES);
-        validateLookupOrEnum("URGENCY", d.getUrgency(), PRIORITY_CODES);
-        validateLookupOrEnum("DEMAND_STATUS", d.getStatus(), STATUS_CODES);
-        validateLookupOrEnum("CAPACITY_STATUS", d.getCapacityStatus(), CAPACITY_CODES);
-        validateLookupOrEnum("RISK_STATUS", d.getRiskStatus(), RISK_CODES);
-        validateLookupOrEnum("APPROVAL_TYPE", d.getApprovalType(), APPROVAL_CODES);
-        validateLookupOrEnum("COMMITTEE_DECISION", d.getCommitteeDecision(), COMMITTEE_CODES);
-
-        if ("READY_FOR_COMMITTEE".equals(norm(d.getStatus()))) {
-            validateCommitteeReadiness(d);
-        }
-
-        if (d.getStrategicPillar() != null && d.getStrategicObjective() != null
-                && d.getStrategicObjective().getStrategicElement() != null
-                && d.getStrategicObjective().getStrategicElement().getStrategicPillar() != null
-                && !Objects.equals(d.getStrategicPillar().getId(),
-                        d.getStrategicObjective().getStrategicElement().getStrategicPillar().getId())) {
-            throw domain(HttpStatus.UNPROCESSABLE_ENTITY, "OBJECTIVE_DOES_NOT_BELONG_TO_PILLAR",
-                    "Objetivo não pertence ao pilar informado", Map.of());
-        }
-
-
-    }
-
-    private void validateLookupOrEnum(String category, String code, Set<String> fallback) {
-        if (code == null || code.isBlank())
-            return;
-        boolean valid = lookups.existsCode(category, code) || (fallback != null && fallback.contains(norm(code)));
-        if (!valid)
-            throw new BadRequestException("Valor inválido para " + category + ": " + code);
-    }
-
-    private void validateStatusValue(String status) {
-        if (!STATUS_CODES.contains(status))
-            throw new BadRequestException("status inválido: " + status);
-    }
-
-    private void validateTransition(Demand demand, String from, String to, String reason) {
-        if (Objects.equals(from, to))
-            return;
-        if ("APPROVED".equals(from) && STATUS_IN_ANALYSIS.equals(to)) {
-            throw domain(HttpStatus.CONFLICT, "APPROVED_DEMAND_CANNOT_RETURN_TO_ANALYSIS",
-                    "Uma demanda aprovada não pode voltar para Em Análise",
-                    Map.of("from", from, "to", to));
-        }
-        if ("CONVERTED_TO_PROJECT".equals(to)) {
-            throw domain(HttpStatus.CONFLICT, "PROJECT_CONVERSION_ENDPOINT_REQUIRED",
-                    "Use o endpoint de conversão para alterar a demanda para Convertida em Projeto",
-                    Map.of("from", from, "to", to));
-        }
-        Map<String, Set<String>> next = new HashMap<>();
-        next.put(STATUS_DRAFT, Set.of(STATUS_IN_ANALYSIS, "BACKLOG", "ARCHIVED"));
-        next.put(STATUS_IN_ANALYSIS, Set.of(STATUS_IN_PRIORITIZATION, "BACKLOG", "ARCHIVED"));
-        next.put(STATUS_IN_PRIORITIZATION, Set.of("PRIORITIZED", "BACKLOG", "ARCHIVED", STATUS_IN_ANALYSIS));
-        next.put("PRIORITIZED", Set.of(STATUS_IN_STRATEGIC_COMMITTEE, "ARCHIVED"));
-        next.put(STATUS_IN_STRATEGIC_COMMITTEE,
-            Set.of("APPROVED", "BACKLOG", STATUS_IN_ANALYSIS, STATUS_IN_PRIORITIZATION, "ARCHIVED"));
-        next.put("UNDER_PRIORITIZATION", Set.of("PRIORITIZED", "READY_FOR_COMMITTEE", "BACKLOG", "ARCHIVED", STATUS_IN_ANALYSIS));
-        next.put("READY_FOR_COMMITTEE",
-            Set.of("APPROVED", "BACKLOG", STATUS_IN_ANALYSIS, STATUS_IN_PRIORITIZATION, "UNDER_PRIORITIZATION", "ARCHIVED"));
-        next.put("APPROVED", Set.of("CONVERTED_TO_PROJECT", "ARCHIVED"));
-        next.put("BACKLOG", Set.of(STATUS_IN_ANALYSIS, "ARCHIVED"));
-        next.put("CONVERTED_TO_PROJECT", Set.of("ARCHIVED"));
-        next.put("ARCHIVED", Set.of());
-
-        boolean ok = next.getOrDefault(from, Set.of()).contains(to);
-        if (!ok) {
-            throw domain(HttpStatus.CONFLICT, "INVALID_STATUS_TRANSITION", "Transição de status inválida",
-                    Map.of("from", from, "to", to));
-        }
-
-        if ("READY_FOR_COMMITTEE".equals(to)) {
-            validateCommitteeReadiness(demand);
-        }
-
-        if (("BACKLOG".equals(to) || "ARCHIVED".equals(to)) && (reason == null || reason.isBlank())) {
-            throw new BadRequestException("reason é obrigatório para status " + to);
-        }
-    }
-
-    private String eventTypeForTransition(String to) {
-        return switch (to) {
-            case "PRIORITIZED", "READY_FOR_COMMITTEE" -> "SUBMITTED_TO_COMMITTEE";
-            case STATUS_IN_STRATEGIC_COMMITTEE -> "SENT_TO_STRATEGIC_COMMITTEE";
-            case "APPROVED" -> "APPROVED";
-            case "BACKLOG" -> "BACKLOG";
-            default -> "STATUS_CHANGED";
-        };
-    }
-
-    private void syncStrategicCommitteeStage(Demand demand, String from, String to) {
-        if (STATUS_IN_STRATEGIC_COMMITTEE.equals(to)) {
-            demand.setInStrategicCommittee(true);
-            if (!STATUS_IN_STRATEGIC_COMMITTEE.equals(from)) {
-                demand.setStrategicCommitteeAt(Instant.now());
-            }
-            return;
-        }
-        demand.setInStrategicCommittee(false);
-    }
-
-    private Demand entity(UUID id) {
-        return demands.findByIdAndDeletedAtIsNull(id).orElseThrow(() -> domain(HttpStatus.NOT_FOUND, "DEMAND_NOT_FOUND",
-                "Demanda não encontrada", Map.of("id", id.toString())));
-    }
-
-    private DemandResponse map(Demand d) {
-        List<DemandAttachmentResponse> att = attachments.findByDemandIdOrderByCreatedAtDesc(d.getId()).stream()
-                .map(a -> new DemandAttachmentResponse(a.getId(), a.getName(), a.getUrl(), a.getContentType(),
-                        a.getCreatedAt(), a.getCreatedBy()))
-                .toList();
-        List<ParticipatingDirectionResponse> participatingDirs = participatingDirections
-                .findByDemandIdOrderByCreatedAtAsc(d.getId()).stream()
-                .map(this::mapParticipatingDirection)
-                .toList();
-        List<DemandProfileRequirementResponse> profileRequirementResponses = profileRequirements.list(d.getId());
-        String typeCode = d.getType() != null ? d.getType().getCode() : null;
-        String domainCode = d.getDomain() != null ? d.getDomain().getCode() : null;
-        LookupValueSummary typeData = mapLookupValue(d.getType());
-        LookupValueSummary domainData = mapLookupValue(d.getDomain());
-        StrategicPlanSummary strategicPlan = mapStrategicPlan(d.getStrategicPlan());
-        OperationalPlanSummary operationalPlan = mapOperationalPlan(d.getOperationalPlan());
-        StrategicPillarSummary strategicPillar = mapStrategicPillar(d.getStrategicPillar());
-        StrategicObjectiveSummary strategicObjective = mapStrategicObjective(d.getStrategicObjective());
-        ProgramSummary program = mapProgram(d.getProgram());
-        CommitteeSummary responsibleCommittee = mapCommittee(d.getResponsibleCommittee());
-        CommitteeSummary committee = responsibleCommittee;
-        ProjectSummary convertedProject = mapProject(d.getConvertedProject());
-        DemandScoringResponse calculatedScoring = scoringService.getByDemand(d.getId());
-        return new DemandResponse(d.getId(), d.getCode(), d.getTitle(), d.getDescription(), d.getRequester(), d.getAreaName(),
-            d.getAreaCode(), d.getDirectionName(), d.getDirectionCode(), d.getDirectionParticipationType(), d.getSponsor(), d.getTypeId(), typeCode, d.getOrigin(), d.getEasyVistaRef(),
-                d.getStrategicPlanId(),
-                d.getOperationalPlanId(), d.getStrategicPillarId(), d.getStrategicObjectiveId(), d.getProgramId(),
-                d.getCommitteeId(), d.getResponsibleCommitteeId(),
-                d.getDomainId(), domainCode, d.getImpactedSystem(),
-                d.getInitialPriority(), d.getEstimatedEffort(),
-                d.getExpectedImpact(),
-                d.getExpectedBenefit(), d.getUrgency(), d.getEstimatedBudget(), d.getDesiredDate(), d.getNotes(),
-                norm(d.getStatus()), d.isInStrategicCommittee(), d.getStrategicCommitteeAt(),
-                d.getCapacityStatus(), d.getRiskStatus(), d.getRisksIdentified(),
-                d.getDependenciesIdentified(), d.getDirectionsCount(), d.getProfilesCount(), d.getTotalResources(),
-                d.getDependenciesCount(), d.getComplexityScore(), d.getComplexity(), d.getEstimatedDurationMonths(),
-                d.getPlannedStartDate(), d.getScoreTotal(),
-                d.getScoreStatus(), d.getScoreCalculatedAt(), d.getScoreInvalidatedAt(),
-                d.getScoreInvalidationReason(), scoreLifecycle.previousScoreSnapshot(d),
-                d.getPreScore(), d.getPreScoreClassification(),
-                d.getPortfolioRank(), d.getDirectionRank(), d.getCommitteeRank(), d.getApprovalType(), d.getCommitteeDecision(),
-                d.getRejectionReason(),
-                d.getConvertedProjectId(), d.getCreatedAt(), d.getCreatedBy(), d.getUpdatedAt(), d.getUpdatedBy(),
-                d.getVersion(), typeData, domainData, strategicPlan, operationalPlan, strategicPillar,
-                strategicObjective, program, committee, responsibleCommittee,
-                convertedProject, att, participatingDirs, profileRequirementResponses, calculatedScoring);
-    }
-
-    private LookupValueSummary mapLookupValue(LookupValue value) {
-        if (value == null)
-            return null;
-        return new LookupValueSummary(value.getId(), value.getCategory(), value.getCode(), value.getLabel());
-    }
-
-    private StrategicPlanSummary mapStrategicPlan(StrategicPlan plan) {
-        if (plan == null)
-            return null;
-        return new StrategicPlanSummary(plan.getId(), plan.getName(), plan.getStartYear(), plan.getEndYear(),
-                plan.getStatus() != null ? plan.getStatus().name() : null);
-    }
-
-    private OperationalPlanSummary mapOperationalPlan(OperationalPlan plan) {
-        if (plan == null)
-            return null;
-        return new OperationalPlanSummary(plan.getId(), plan.getName(), plan.getFiscalYear(),
-                plan.getStatus() != null ? plan.getStatus().name() : null);
+    private DemandPlanningCycleDtos.Response mapCycle(DemandPlanningCycle c) {
+        return new DemandPlanningCycleDtos.Response(
+                c.getId(), c.getDemand().getId(),
+                mapStrategicPlan(c.getStrategicPlan()), mapOperationalPlan(c.getOperationalPlan()),
+                mapStrategicPillar(c.getStrategicPillar()), mapStrategicObjective(c.getStrategicObjective()),
+                mapProgram(c.getProgram()), c.getStatus(), mapCommittee(c.getResponsibleCommittee()),
+                c.isInStrategicCommittee(), c.getStrategicCommitteeAt(), c.getPreScore(), c.getPreScoreClassification(),
+                c.getScoreTotal(), c.getScoreStatus(), c.getScoreCalculatedAt(), c.getScoreInvalidatedAt(),
+                c.getScoreInvalidationReason(), scoreLifecycle.previousScoreSnapshot(c), c.getPortfolioRank(),
+                c.getDirectionRank(), c.getCommitteeRank(), c.getCapacityStatus(), c.getRiskStatus(),
+                c.getApprovalType(), c.getCommitteeDecision(), c.getRejectionReason(), c.getDecisionAt(),
+                c.getDecisionBy(), c.getReprioritizationReason(), c.getReprioritizationJustification(),
+                c.getReprioritizedAt(), c.getReprioritizedBy(), c.isCarriedOver(),
+                c.getPreviousCycle() != null ? c.getPreviousCycle().getId() : null, c.getCycleEntryAt(),
+                c.getConvertedProject() != null ? c.getConvertedProject().getId() : null,
+                c.getConvertedProgram() != null ? c.getConvertedProgram().getId() : null, c.getConvertedAt(),
+                c.getConvertedBy(), c.getCreatedAt(), c.getUpdatedAt(), c.getVersion());
     }
 
     private StrategicPillarSummary mapStrategicPillar(StrategicPillar pillar) {
@@ -840,23 +552,198 @@ public class DemandService {
                 committee.isStrategicCommittee());
     }
 
-    private ProjectSummary mapProject(Project project) {
-        if (project == null)
-            return null;
-        return new ProjectSummary(project.getId(), project.getName(),
-                project.getStatus() != null ? project.getStatus().name() : null);
+    @Transactional
+    public List<DemandPlanningCycleDtos.PlanningHistoryItem> planningHistory(UUID id) {
+        entity(id);
+        return planningCycles.findAllByDemand_IdOrderByCycleEntryAtDesc(id).stream()
+                .map(c -> new DemandPlanningCycleDtos.PlanningHistoryItem(
+                        c.getStrategicPlan().getStartYear(), c.getStrategicPlan().getName(),
+                        c.getOperationalPlan().getName(), c.getStatus(), c.getScoreTotal(), c.getPortfolioRank(),
+                        c.getCommitteeDecision(), c.isCarriedOver()))
+                .toList();
     }
 
-    private void validateConversionOperationalPlan(Demand demand, OperationalPlan operationalPlan) {
-        if (operationalPlan == null || demand.getStrategicPlan() == null) {
+    private DemandAttachmentResponse addAttachment(Demand demand, AttachmentCreate req, String actorId) {
+        DemandAttachment att = new DemandAttachment();
+        att.setDemand(demand);
+        att.setName(req.name());
+        att.setUrl(req.url());
+        att.setContentType(req.contentType());
+        att.setCreatedBy(actor(actorId));
+        DemandAttachment saved = attachments.save(att);
+        historyService.log(demand, "ATTACHMENT_ADDED", null, null, "Anexo adicionado", actor(actorId), actor(actorId),
+                Map.of("attachmentId", saved.getId().toString()));
+        return new DemandAttachmentResponse(saved.getId(), saved.getName(), saved.getUrl(), saved.getContentType(),
+                saved.getCreatedAt(), saved.getCreatedBy());
+    }
+
+    private void apply(Create req, Demand d) {
+        String normalizedOrigin = req.origin() == null || req.origin().isBlank() ? "MANUAL" : norm(req.origin());
+        d.setTitle(req.title());
+        d.setDescription(req.description());
+        d.setRequester(req.requester());
+        d.setAreaName(req.areaName());
+        d.setAreaCode(req.areaCode());
+        d.setDirectionName(req.directionName());
+        d.setDirectionCode(req.directionCode());
+        d.setDirectionParticipationType(req.directionParticipationType());
+        d.setSponsor(req.sponsor());
+        d.setType(req.typeId() == null ? null : lookups.requireActiveInCategory(req.typeId(), "DEMAND_TYPE"));
+        d.setOrigin(normalizedOrigin);
+        d.setEasyVistaRef(req.easyVistaRef());
+        syncSuppliers(d, req.supplierIds());
+        d.setDomain(req.domainId() == null ? null : lookups.findById(req.domainId()));
+        d.setImpactedSystem(req.impactedSystem());
+        d.setInitialPriority(req.initialPriority() == null ? null : norm(req.initialPriority()));
+        d.setEstimatedEffort(req.estimatedEffort() == null ? null : norm(req.estimatedEffort()));
+        d.setExpectedImpact(req.expectedImpact());
+        d.setExpectedBenefit(req.expectedBenefit());
+        d.setUrgency(req.urgency() == null ? null : norm(req.urgency()));
+        d.setEstimatedBudget(req.estimatedBudget());
+        d.setDesiredDate(req.desiredDate());
+        d.setNotes(req.notes());
+        d.setRisksIdentified(req.risksIdentified());
+        d.setDependenciesIdentified(req.dependenciesIdentified());
+        if (d.getId() == null) {
+            d.setDependenciesCount(0);
+        }
+
+        validateBusinessRules(d);
+    }
+
+    private void validateBusinessRules(Demand d) {
+        if ("EASYVISTA".equals(norm(d.getOrigin())) && (d.getEasyVistaRef() == null || d.getEasyVistaRef().isBlank())) {
+            throw domain(HttpStatus.UNPROCESSABLE_ENTITY, "EASYVISTA_REFERENCE_REQUIRED",
+                    "easyVistaRef é obrigatório quando origin = EASYVISTA", Map.of());
+        }
+        if (d.getEstimatedBudget() != null && d.getEstimatedBudget().compareTo(BigDecimal.ZERO) < 0)
+            throw new BadRequestException("estimatedBudget não pode ser negativo");
+
+        if (d.getType() == null) {
+            throw new BadRequestException("typeId é obrigatório");
+        }
+        validateLookupOrEnum("DEMAND_ORIGIN", d.getOrigin(), Set.of("MANUAL", "EASYVISTA"));
+        validateLookupOrEnum("PRIORITY", d.getInitialPriority(), PRIORITY_CODES);
+        validateLookupOrEnum("ESTIMATED_EFFORT", d.getEstimatedEffort(), EFFORT_CODES);
+        validateLookupOrEnum("URGENCY", d.getUrgency(), PRIORITY_CODES);
+    }
+
+    private void validateLookupOrEnum(String category, String code, Set<String> fallback) {
+        if (code == null || code.isBlank())
+            return;
+        boolean valid = lookups.existsCode(category, code) || (fallback != null && fallback.contains(norm(code)));
+        if (!valid)
+            throw new BadRequestException("Valor inválido para " + category + ": " + code);
+    }
+
+    private Demand entity(UUID id) {
+        return demands.findByIdAndDeletedAtIsNull(id).orElseThrow(() -> domain(HttpStatus.NOT_FOUND, "DEMAND_NOT_FOUND",
+                "Demanda não encontrada", Map.of("id", id.toString())));
+    }
+
+    private DemandResponse map(Demand d) {
+        List<DemandAttachmentResponse> att = attachments.findByDemandIdOrderByCreatedAtDesc(d.getId()).stream()
+                .map(a -> new DemandAttachmentResponse(a.getId(), a.getName(), a.getUrl(), a.getContentType(),
+                        a.getCreatedAt(), a.getCreatedBy()))
+                .toList();
+        List<ParticipatingDirectionResponse> participatingDirs = participatingDirections
+                .findByDemandIdOrderByCreatedAtAsc(d.getId()).stream()
+                .map(this::mapParticipatingDirection)
+                .toList();
+        List<DemandProfileRequirementResponse> profileRequirementResponses = profileRequirements.list(d.getId());
+        String typeCode = d.getType() != null ? d.getType().getCode() : null;
+        String domainCode = d.getDomain() != null ? d.getDomain().getCode() : null;
+        LookupValueSummary typeData = mapLookupValue(d.getType());
+        LookupValueSummary domainData = mapLookupValue(d.getDomain());
+        CurrentCycleSummary currentCycle = planningCycleService.getCurrentPlanningCycle(d.getId())
+                .map(this::mapCurrentCycle).orElse(null);
+        List<SupplierSummary> supplierSummaries = d.getSuppliers().stream()
+                .sorted(Comparator.comparing(Supplier::getName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
+                .map(this::mapSupplier)
+                .toList();
+        return new DemandResponse(d.getId(), d.getCode(), d.getTitle(), d.getDescription(), d.getRequester(), d.getAreaName(),
+            d.getAreaCode(), d.getDirectionName(), d.getDirectionCode(), d.getDirectionParticipationType(), d.getSponsor(), d.getTypeId(), typeCode, d.getOrigin(), d.getEasyVistaRef(),
+                d.getDomainId(), domainCode, d.getImpactedSystem(),
+                d.getInitialPriority(), d.getEstimatedEffort(),
+                d.getExpectedImpact(),
+                d.getExpectedBenefit(), d.getUrgency(), d.getEstimatedBudget(), d.getDesiredDate(), d.getNotes(),
+                d.getRisksIdentified(),
+                d.getDependenciesIdentified(), d.getDirectionsCount(), d.getProfilesCount(), d.getTotalResources(),
+                d.getDependenciesCount(), d.getComplexityScore(), d.getComplexity(), d.getEstimatedDurationMonths(),
+                d.getPlannedStartDate(),
+                d.getCreatedAt(), d.getCreatedBy(), d.getUpdatedAt(), d.getUpdatedBy(),
+                d.getVersion(), typeData, domainData, currentCycle,
+                att, participatingDirs, profileRequirementResponses,
+                supplierSummaries);
+    }
+
+    private CurrentCycleSummary mapCurrentCycle(DemandPlanningCycle c) {
+        return new CurrentCycleSummary(c.getId(), mapStrategicPlan(c.getStrategicPlan()),
+                mapOperationalPlan(c.getOperationalPlan()), c.getStatus(), c.getScoreTotal(), c.getPortfolioRank(),
+                c.getCommitteeDecision(), c.isCarriedOver());
+    }
+
+    private SupplierSummary mapSupplier(Supplier supplier) {
+        var currency = supplier.getCurrency();
+        CurrencySummary currencySummary = currency == null ? null
+                : new CurrencySummary(currency.getId(), currency.getCode(), currency.getName(), currency.getSymbol());
+        return new SupplierSummary(supplier.getId(), supplier.getName(), supplier.getCountry(),
+                supplier.getRatePerHour(), supplier.getRateUnit(), currencySummary);
+    }
+
+    private void syncSuppliers(Demand demand, Set<UUID> supplierIds) {
+        if (supplierIds == null) {
+            return;
+        }
+
+        Set<UUID> requestedIds = new HashSet<>(supplierIds);
+        if (requestedIds.remove(null)) {
+            throw new BadRequestException("supplierIds não pode conter valores nulos");
+        }
+
+        List<Supplier> resolvedSuppliers = supplierRepository.findAllById(requestedIds);
+        Set<UUID> resolvedIds = new HashSet<>();
+        resolvedSuppliers.forEach(supplier -> resolvedIds.add(supplier.getId()));
+
+        requestedIds.removeAll(resolvedIds);
+        if (!requestedIds.isEmpty()) {
+            throw new ResourceNotFoundException("Fornecedor(es) não encontrado(s): " + requestedIds);
+        }
+
+        demand.getSuppliers().clear();
+        demand.getSuppliers().addAll(resolvedSuppliers);
+    }
+
+    private LookupValueSummary mapLookupValue(LookupValue value) {
+        if (value == null)
+            return null;
+        return new LookupValueSummary(value.getId(), value.getCategory(), value.getCode(), value.getLabel());
+    }
+
+    private StrategicPlanSummary mapStrategicPlan(StrategicPlan plan) {
+        if (plan == null)
+            return null;
+        return new StrategicPlanSummary(plan.getId(), plan.getName(), plan.getStartYear(), plan.getEndYear(),
+                plan.getStatus() != null ? plan.getStatus().name() : null);
+    }
+
+    private OperationalPlanSummary mapOperationalPlan(OperationalPlan plan) {
+        if (plan == null)
+            return null;
+        return new OperationalPlanSummary(plan.getId(), plan.getName(), plan.getFiscalYear(),
+                plan.getStatus() != null ? plan.getStatus().name() : null);
+    }
+
+    private void validateConversionOperationalPlan(DemandPlanningCycle cycle, OperationalPlan operationalPlan) {
+        if (operationalPlan == null || cycle.getStrategicPlan() == null) {
             return;
         }
         StrategicPlan plan = operationalPlan.getStrategicPlan();
-        if (plan == null || !Objects.equals(plan.getId(), demand.getStrategicPlan().getId())) {
+        if (plan == null || !Objects.equals(plan.getId(), cycle.getStrategicPlan().getId())) {
             throw domain(HttpStatus.UNPROCESSABLE_ENTITY, "OPERATIONAL_PLAN_STRATEGIC_PLAN_MISMATCH",
-                    "O plano operacional do projeto deve pertencer ao plano estratégico da demanda",
+                    "O plano operacional do projeto deve pertencer ao plano estratégico do ciclo da demanda",
                     Map.of("operationalPlanId", operationalPlan.getId().toString(),
-                            "strategicPlanId", demand.getStrategicPlan().getId().toString()));
+                            "strategicPlanId", cycle.getStrategicPlan().getId().toString()));
         }
     }
 
@@ -928,41 +815,13 @@ public class DemandService {
         return null;
     }
 
-    private void validateReadOnlyScoreFields(BigDecimal requestedScore, Integer requestedPortfolioRank,
-            Integer requestedDirectionRank, Demand demand, boolean creating) {
-        boolean scoreChanged = requestedScore != null
-                && (creating || demand.getScoreTotal() == null
-                        || requestedScore.compareTo(demand.getScoreTotal()) != 0);
-        boolean portfolioRankChanged = requestedPortfolioRank != null
-                && (creating || !Objects.equals(requestedPortfolioRank, demand.getPortfolioRank()));
-        boolean directionRankChanged = requestedDirectionRank != null
-                && (creating || !Objects.equals(requestedDirectionRank, demand.getDirectionRank()));
-        if (scoreChanged || portfolioRankChanged || directionRankChanged) {
-            throw domain(HttpStatus.UNPROCESSABLE_ENTITY, "SCORE_FIELDS_READ_ONLY",
-                    "scoreTotal, portfolioRank e directionRank só podem ser alterados pelo endpoint de scoring",
-                    Map.of());
-        }
-    }
-
-    private void validateCommitteeReadiness(Demand demand) {
-        Committee responsible = demand.getResponsibleCommittee();
-        if (responsible == null) {
-            throw domain(HttpStatus.UNPROCESSABLE_ENTITY, "RESPONSIBLE_COMMITTEE_REQUIRED",
-                    "O comité responsável é obrigatório para a demanda ficar pronta para Comité.", Map.of());
-        }
-        if (responsible.getStatus() != CommitteeStatus.ACTIVE) {
-            throw domain(HttpStatus.UNPROCESSABLE_ENTITY, "COMMITTEE_INACTIVE",
-                    "O comité responsável deve estar ativo.",
-                    Map.of("committeeId", responsible.getId().toString()));
-        }
-    }
-
-    private void recomputeRanksIfNeeded(BigDecimal previousScore, String previousDirection, Demand demand) {
-        boolean leftRanking = previousScore != null && demand.getScoreTotal() == null;
-        boolean changedDirection = previousScore != null && demand.getScoreTotal() != null
-                && !Objects.equals(normalizeDirection(previousDirection), normalizeDirection(demand.getDirectionCode()));
+    private void recomputeRanksIfNeeded(BigDecimal previousScore, String previousDirection, DemandPlanningCycle cycle) {
+        boolean leftRanking = previousScore != null && cycle.getScoreTotal() == null;
+        boolean changedDirection = previousScore != null && cycle.getScoreTotal() != null
+                && !Objects.equals(normalizeDirection(previousDirection),
+                        normalizeDirection(cycle.getDemand().getDirectionCode()));
         if (leftRanking || changedDirection) {
-            scoringService.recomputeRanks();
+            scoringService.recomputeRanks(cycle.getStrategicPlan().getId());
         }
     }
 
@@ -974,12 +833,20 @@ public class DemandService {
         if (previousState.equals(scoreRelevantState(demand))) {
             return;
         }
-        if ("APPROVED".equals(norm(demand.getStatus()))) {
-            throw domain(HttpStatus.CONFLICT, "APPROVED_DEMAND_SCORE_INPUTS_LOCKED",
-                    "Dados relevantes para scoring não podem ser alterados numa demanda aprovada", Map.of());
-        }
-        if (scoreLifecycle.isValid(demand)) {
-            scoreLifecycle.invalidateAfterRelevantUpdate(demand);
+        List<DemandPlanningCycle> openCycles = planningCycles.findAllByDemand_IdOrderByCycleEntryAtDesc(demand.getId())
+                .stream()
+                .filter(c -> c.getStatus() != APPROVED && c.getStatus() != CONDITIONALLY_APPROVED
+                        && c.getStatus() != CONVERTED_TO_PROJECT && c.getStatus() != CONVERTED_TO_PROGRAM
+                        && c.getStatus() != CLOSED)
+                .toList();
+        for (DemandPlanningCycle cycle : openCycles) {
+            String previousDirection = cycle.getDemand().getDirectionCode();
+            BigDecimal previousScore = cycle.getScoreTotal();
+            if (scoreLifecycle.isValid(cycle)) {
+                scoreLifecycle.invalidateAfterRelevantUpdate(cycle);
+                planningCycles.save(cycle);
+                recomputeRanksIfNeeded(previousScore, previousDirection, cycle);
+            }
         }
     }
 
@@ -987,11 +854,6 @@ public class DemandService {
         return new ScoreRelevantState(
                 demand.getDescription(),
                 demand.getTypeId(),
-                demand.getStrategicPlanId(),
-                demand.getOperationalPlanId(),
-                demand.getStrategicPillarId(),
-                demand.getStrategicObjectiveId(),
-                demand.getProgramId(),
                 demand.getDomainId(),
                 demand.getImpactedSystem(),
                 demand.getInitialPriority(),
@@ -1001,8 +863,6 @@ public class DemandService {
                 demand.getUrgency(),
                 normalizedDecimal(demand.getEstimatedBudget()),
                 demand.getDesiredDate(),
-                demand.getCapacityStatus(),
-                demand.getRiskStatus(),
                 demand.getRisksIdentified(),
                 demand.getDependenciesIdentified());
     }
@@ -1050,11 +910,6 @@ public class DemandService {
     private record ScoreRelevantState(
             String description,
             UUID typeId,
-            UUID strategicPlanId,
-            UUID operationalPlanId,
-            UUID strategicPillarId,
-            UUID strategicObjectiveId,
-            UUID programId,
             UUID domainId,
             String impactedSystem,
             String initialPriority,
@@ -1064,8 +919,6 @@ public class DemandService {
             String urgency,
             BigDecimal estimatedBudget,
             LocalDate desiredDate,
-            String capacityStatus,
-            String riskStatus,
             String risksIdentified,
             String dependenciesIdentified) {
     }
@@ -1084,12 +937,7 @@ public class DemandService {
                 p.typeId() != null ? p.typeId() : d.getTypeId(),
                 p.origin() != null ? p.origin() : d.getOrigin(),
                 p.easyVistaRef() != null ? p.easyVistaRef() : d.getEasyVistaRef(),
-                p.strategicPlanId() != null ? p.strategicPlanId() : d.getStrategicPlanId(),
-                p.operationalPlanId() != null ? p.operationalPlanId() : d.getOperationalPlanId(),
-                p.strategicPillarId() != null ? p.strategicPillarId() : d.getStrategicPillarId(),
-                p.strategicObjectiveId() != null ? p.strategicObjectiveId() : d.getStrategicObjectiveId(),
-                p.programId() != null ? p.programId() : d.getProgramId(),
-                p.committeeId() != null ? p.committeeId() : d.getCommitteeId(),
+                p.supplierIds(),
                 p.domainId() != null ? p.domainId() : d.getDomainId(),
                 p.impactedSystem() != null ? p.impactedSystem() : d.getImpactedSystem(),
                 p.initialPriority() != null ? p.initialPriority() : d.getInitialPriority(),
@@ -1100,17 +948,9 @@ public class DemandService {
                 p.estimatedBudget() != null ? p.estimatedBudget() : d.getEstimatedBudget(),
                 p.desiredDate() != null ? p.desiredDate() : d.getDesiredDate(),
                 p.notes() != null ? p.notes() : d.getNotes(),
-                p.capacityStatus() != null ? p.capacityStatus() : d.getCapacityStatus(),
-                p.riskStatus() != null ? p.riskStatus() : d.getRiskStatus(),
                 p.risksIdentified() != null ? p.risksIdentified() : d.getRisksIdentified(),
                 p.dependenciesIdentified() != null ? p.dependenciesIdentified() : d.getDependenciesIdentified(),
                 p.dependenciesCount() != null ? p.dependenciesCount() : d.getDependenciesCount(),
-                p.scoreTotal() != null ? p.scoreTotal() : d.getScoreTotal(),
-                p.portfolioRank() != null ? p.portfolioRank() : d.getPortfolioRank(),
-                p.directionRank() != null ? p.directionRank() : d.getDirectionRank(),
-                p.approvalType() != null ? p.approvalType() : d.getApprovalType(),
-                p.committeeDecision() != null ? p.committeeDecision() : d.getCommitteeDecision(),
-                p.rejectionReason() != null ? p.rejectionReason() : d.getRejectionReason(),
                 null,
                 p.participatingDirections(),
                 p.profileRequirements());
@@ -1118,12 +958,10 @@ public class DemandService {
 
     private Create toCreate(Update u) {
         return new Create(u.title(), u.description(), u.requester(), u.areaName(), u.areaCode(), u.directionName(), u.directionCode(), u.directionParticipationType(), u.sponsor(), u.typeId(),
-                u.origin(), u.easyVistaRef(), u.strategicPlanId(), u.operationalPlanId(), u.strategicPillarId(),
-            u.strategicObjectiveId(), u.programId(), u.committeeId(), u.domainId(), u.impactedSystem(), u.initialPriority(),
+                u.origin(), u.easyVistaRef(), u.supplierIds(), u.domainId(), u.impactedSystem(), u.initialPriority(),
                 u.estimatedEffort(), u.expectedImpact(), u.expectedBenefit(), u.urgency(), u.estimatedBudget(),
-                u.desiredDate(), u.notes(), u.capacityStatus(), u.riskStatus(), u.risksIdentified(),
-                u.dependenciesIdentified(), u.dependenciesCount(), u.scoreTotal(),
-                u.portfolioRank(), u.directionRank(), u.approvalType(), u.committeeDecision(), u.rejectionReason(),
+                u.desiredDate(), u.notes(), u.risksIdentified(),
+                u.dependenciesIdentified(), u.dependenciesCount(),
                 null, u.participatingDirections(), u.profileRequirements());
     }
 
@@ -1144,24 +982,7 @@ public class DemandService {
     }
 
     private String norm(String value) {
-        if (value == null) {
-            return null;
-        }
-        String normalized = value.trim().toUpperCase(Locale.ROOT);
-        if ("IN_ANALYSYS".equals(normalized)) {
-            return STATUS_IN_ANALYSIS;
-        }
-        if ("IN_PRIORIZATION".equals(normalized)) {
-            return STATUS_IN_PRIORITIZATION;
-        }
-        return normalized;
-    }
-
-    private String normalizeStatusTransitionTarget(String requestedStatus) {
-        if ("CONDITIONALLY_APPROVED".equals(requestedStatus)) {
-            return "APPROVED";
-        }
-        return requestedStatus;
+        return value == null ? null : value.trim().toUpperCase(Locale.ROOT);
     }
 
     private String actor(String value) {
@@ -1173,95 +994,81 @@ public class DemandService {
     }
 
     @Transactional
-    public ReprioritizePortfolioRankResponse reprioritizePortfolioRank(UUID id, ReprioritizePortfolioRankRequest req, String actorId) {
+    public ReprioritizePortfolioRankResponse reprioritizePortfolioRank(UUID id, UUID strategicPlanId,
+            ReprioritizePortfolioRankRequest req, String actorId) {
         Demand demand = entity(id);
+        DemandPlanningCycle cycle = planningCycleService.resolveForMutation(id, strategicPlanId);
 
-        // Validar se está aprovada ou aprovada condicionada
-        String status = norm(demand.getStatus());
-        if (!("APPROVED".equals(status) || "CONDITIONALLY_APPROVED".equals(norm(demand.getCommitteeDecision())))) {
+        if (cycle.getStatus() != APPROVED && cycle.getStatus() != CONDITIONALLY_APPROVED) {
             throw domain(HttpStatus.CONFLICT, "DEMAND_NOT_APPROVED_FOR_REPRIORITIZATION",
                     "Apenas demandas aprovadas ou aprovadas condicionalmente podem ser repriorizadas",
-                    Map.of("status", status, "committeeDecision", demand.getCommitteeDecision()));
+                    Map.of("status", cycle.getStatus().name()));
         }
 
-        // Buscar todas as demandas aprovadas/condicionadas não convertidas, não arquivadas
-        List<Demand> approvedDemands = demands.findAll((root, query, cb) -> cb.and(
-                cb.isNull(root.get("deletedAt")),
+        Specification<DemandPlanningCycle> spec = (root, query, cb) -> cb.and(
+                cb.equal(root.get("strategicPlan").get("id"), strategicPlanId),
                 cb.isNull(root.get("convertedProject")),
+                cb.isNull(root.get("convertedProgram")),
                 cb.or(
-                    cb.equal(cb.lower(root.get("status")), "approved"),
-                    cb.equal(cb.lower(root.get("committeeDecision")), "conditionally_approved")
-                ),
-                cb.isNotNull(root.get("portfolioRank"))
-        ));
+                        cb.equal(root.get("status"), APPROVED),
+                        cb.equal(root.get("status"), CONDITIONALLY_APPROVED)),
+                cb.isNotNull(root.get("portfolioRank")));
+        List<DemandPlanningCycle> approvedCycles = new ArrayList<>(planningCycles.findAll(spec));
 
-        // Ordenar por portfolioRank
-        approvedDemands.sort(Comparator.comparingInt(d -> d.getPortfolioRank() != null ? d.getPortfolioRank() : Integer.MAX_VALUE));
+        approvedCycles.sort(Comparator.comparingInt(c -> c.getPortfolioRank() != null ? c.getPortfolioRank() : Integer.MAX_VALUE));
 
-        // Validar newPosition
         int newPosition = req.newPosition();
-        if (newPosition < 1 || newPosition > approvedDemands.size()) {
-            throw new BadRequestException("newPosition deve estar entre 1 e " + approvedDemands.size());
+        if (newPosition < 1 || newPosition > approvedCycles.size()) {
+            throw new BadRequestException("newPosition deve estar entre 1 e " + approvedCycles.size());
         }
 
-        Integer currentRank = demand.getPortfolioRank();
+        Integer currentRank = cycle.getPortfolioRank();
         if (currentRank != null && currentRank == newPosition) {
             throw new BadRequestException("newPosition não pode ser igual ao portfolioRank atual");
         }
 
-        // Guardar ranks anteriores para o response
         Map<UUID, Integer> previousRanks = new HashMap<>();
-        for (Demand d : approvedDemands) {
-            previousRanks.put(d.getId(), d.getPortfolioRank());
+        for (DemandPlanningCycle c : approvedCycles) {
+            previousRanks.put(c.getId(), c.getPortfolioRank());
         }
 
-        // Remover a demanda da lista atual se já está ranqueada
-        approvedDemands.removeIf(d -> d.getId().equals(id));
+        approvedCycles.removeIf(c -> c.getId().equals(cycle.getId()));
+        approvedCycles.add(newPosition - 1, cycle);
 
-        // Inserir na nova posição (0-based index)
-        approvedDemands.add(newPosition - 1, demand);
-
-        // Recalcular ranks sequencialmente
-        for (int i = 0; i < approvedDemands.size(); i++) {
-            approvedDemands.get(i).setPortfolioRank(i + 1);
+        for (int i = 0; i < approvedCycles.size(); i++) {
+            approvedCycles.get(i).setPortfolioRank(i + 1);
         }
 
-        // Guardar motivo, justificação, utilizador e data
-        demand.setReprioritizationReason(req.reprioritizationReason());
-        demand.setReprioritizationJustification(req.reprioritizationJustification());
-        demand.setReprioritizedAt(Instant.now());
-        demand.setReprioritizedBy(actor(actorId));
-        demand.setUpdatedBy(actor(actorId));
+        cycle.setReprioritizationReason(req.reprioritizationReason());
+        cycle.setReprioritizationJustification(req.reprioritizationJustification());
+        cycle.setReprioritizedAt(Instant.now());
+        cycle.setReprioritizedBy(actor(actorId));
 
-        // Salvar todas as demandas
-        demands.saveAll(approvedDemands);
+        planningCycles.saveAll(approvedCycles);
 
-        // Guardar histórico
-        historyService.log(demand, "PORTFOLIO_RANK_CHANGED", status, status,
-                "Ranking global repriorizado: " + previousRanks.get(id) + " → " + newPosition,
+        historyService.log(demand, "PORTFOLIO_RANK_CHANGED", cycle.getStatus().name(), cycle.getStatus().name(),
+                "Ranking repriorizado: " + previousRanks.get(cycle.getId()) + " → " + newPosition,
                 actor(actorId), actor(actorId),
-                Map.of("previousRank", previousRanks.get(id).toString(), "newRank", String.valueOf(newPosition),
+                Map.of("previousRank", String.valueOf(previousRanks.get(cycle.getId())), "newRank", String.valueOf(newPosition),
                        "reason", req.reprioritizationReason()));
 
-        // Preparar lista de demandas afetadas
-        List<RankedDemandInfo> affectedDemands = approvedDemands.stream()
-                .filter(d -> !d.getId().equals(id))
-                .map(d -> new RankedDemandInfo(d.getId(), d.getCode(), d.getTitle(),
-                        previousRanks.get(d.getId()), d.getPortfolioRank()))
+        List<RankedDemandInfo> affectedDemands = approvedCycles.stream()
+                .filter(c -> !c.getId().equals(cycle.getId()))
+                .map(c -> new RankedDemandInfo(c.getDemand().getId(), c.getDemand().getCode(), c.getDemand().getTitle(),
+                        previousRanks.get(c.getId()), c.getPortfolioRank()))
                 .toList();
 
-        // Retornar resposta
         return new ReprioritizePortfolioRankResponse(
                 demand.getId(),
                 demand.getCode(),
                 demand.getTitle(),
-                previousRanks.get(id),
-                demand.getPortfolioRank(),
-                status,
+                previousRanks.get(cycle.getId()),
+                cycle.getPortfolioRank(),
+                cycle.getStatus(),
                 req.reprioritizationReason(),
                 req.reprioritizationJustification(),
-                demand.getReprioritizedAt(),
-                demand.getReprioritizedBy(),
+                cycle.getReprioritizedAt(),
+                cycle.getReprioritizedBy(),
                 affectedDemands
         );
     }

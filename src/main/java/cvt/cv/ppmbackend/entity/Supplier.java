@@ -1,6 +1,8 @@
 package cvt.cv.ppmbackend.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
+import cvt.cv.ppmbackend.enums.RateUnit;
 import jakarta.persistence.*;
 import lombok.*;
 import java.math.BigDecimal;
@@ -13,14 +15,28 @@ import java.time.LocalDate;
 @NoArgsConstructor
 @JsonIgnoreProperties({ "hibernateLazyInitializer", "handler" })
 public class Supplier extends BaseEntity {
+    
+    
     @Column(nullable = false, length = 150)
     private String name;
-    @Column(length = 150)
-    private String contract;
-    @Column(precision = 12, scale = 2)
-    private BigDecimal availableHourPackage;
+   
+
+    @Column(nullable = false, length = 100)
+    private String country;
+
     @Column(nullable = false, precision = 12, scale = 2)
-    private BigDecimal consumedHours = BigDecimal.ZERO;
-    private LocalDate contractStartDate;
-    private LocalDate contractEndDate;
+    private BigDecimal ratePerHour;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private RateUnit rateUnit;
+
+    @ManyToOne
+    @JoinColumn(name = "currency_id")
+    private Currency currency;
+
+
+  
+   
+    
 }

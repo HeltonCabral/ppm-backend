@@ -1,5 +1,6 @@
 package cvt.cv.ppmbackend.dto;
 
+import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -25,6 +26,7 @@ public final class CommitteeDecisionDtos {
     }
 
     public record BulkDeliberationRequest(
+            @NotNull UUID strategicPlanId,
             @Valid @NotNull BulkDeliberationFilters filters,
             @NotBlank @Size(max = 60) String decision,
             @Size(max = 10000) String condition,
@@ -35,8 +37,8 @@ public final class CommitteeDecisionDtos {
             UUID id,
             String code,
             String title,
-            String previousStatus,
-            String newStatus,
+            DemandPlanningStatus previousStatus,
+            DemandPlanningStatus newStatus,
             String decision,
             String condition,
             String justification,
@@ -57,5 +59,53 @@ public final class CommitteeDecisionDtos {
             String code,
             String title,
             String reason) {
+    }
+
+    public record DecisionDashboardResponse(
+            StrategicPlanDecisionSummary plan,
+            ScenarioDecisionSummary scenario,
+            DecisionOverview overview,
+            List<AttentionPoint> attentionPoints) {
+    }
+
+    public record StrategicPlanDecisionSummary(
+            UUID id,
+            String name,
+            Integer startYear,
+            Integer endYear,
+            String status,
+            String statusLabel,
+            int deliberatedDemands,
+            int totalDemands,
+            int deliberationPercentage) {
+    }
+
+    public record ScenarioDecisionSummary(
+            int demandsCount,
+            BigDecimal requiredBudget,
+            CapacitySummary capacity,
+            int pendingDecisions,
+            int openConditions) {
+    }
+
+    public record DecisionOverview(
+            BigDecimal totalBudget,
+            CapacitySummary capacity,
+            int deficitProfiles,
+            int blockedDemands,
+            int criticalDependencies) {
+    }
+
+    public record CapacitySummary(
+            BigDecimal available,
+            BigDecimal required,
+            BigDecimal coveragePercentage) {
+    }
+
+    public record AttentionPoint(
+            String code,
+            String severity,
+            String message,
+            int count) {
     }
 }

@@ -4,6 +4,7 @@ import cvt.cv.ppmbackend.dto.CommitteeAlternativeResponse;
 import cvt.cv.ppmbackend.dto.CommitteeSuggestionResponse;
 import cvt.cv.ppmbackend.entity.Committee;
 import cvt.cv.ppmbackend.entity.Demand;
+import cvt.cv.ppmbackend.entity.DemandPlanningCycle;
 import cvt.cv.ppmbackend.entity.LookupValue;
 import cvt.cv.ppmbackend.enums.CommitteeStatus;
 import cvt.cv.ppmbackend.repository.CommitteeRepository;
@@ -31,14 +32,14 @@ public class CommitteeSuggestionService {
         this.committees = committees;
     }
 
-    public CommitteeSuggestionResponse suggest(Demand demand) {
-        return calculate(demand).response();
+    public CommitteeSuggestionResponse suggest(Demand demand, DemandPlanningCycle cycle) {
+        return calculate(demand, cycle).response();
     }
 
-    public SuggestionResult calculate(Demand demand) {
+    public SuggestionResult calculate(Demand demand, DemandPlanningCycle cycle) {
         List<ScoredCommittee> ranked = committees.findByStatusOrderByNameAsc(CommitteeStatus.ACTIVE).stream()
             .filter(committee -> !committee.isStrategicCommittee())
-                .map(committee -> score(committee, demand))
+                .map(committee -> score(committee, demand, cycle))
                 .filter(candidate -> candidate.score() > 0)
                 .sorted(Comparator.comparingInt(ScoredCommittee::score).reversed()
                         .thenComparing(candidate -> normalized(candidate.committee().getName()))
@@ -66,7 +67,7 @@ public class CommitteeSuggestionService {
         return new SuggestionResult(committee, response);
     }
 
-    private ScoredCommittee score(Committee committee, Demand demand) {
+    private ScoredCommittee score(Committee committee, Demand demand, DemandPlanningCycle cycle) {
         int score = 0;
         List<String> reasons = new ArrayList<>();
 
@@ -91,7 +92,7 @@ public class CommitteeSuggestionService {
             reasons.add(DOMAIN_REASON);
         }
 
-        if (matchesRisk(committee.getRiskLevels(), demand.getRiskStatus())) {
+        if (matchesRisk(committee.getRiskLevels(), cycle.getRiskStatus())) {
             score += 10;
             reasons.add(RISK_REASON);
         }

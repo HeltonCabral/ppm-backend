@@ -9,7 +9,7 @@ public enum StrategicPlanStatus {
     CONDITIONALLY_APPROVED("Aprovado Condicionalmente"),
     APPROVED("Aprovado"),
     ACTIVE("Ativo"),
-    REPLACED("Substituido"),
+    SUPERSEDED("Substituido"),
     CLOSED("Encerrado");
 
     private final String label;

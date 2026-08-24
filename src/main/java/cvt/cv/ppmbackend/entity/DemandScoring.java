@@ -18,9 +18,9 @@ import java.math.BigDecimal;
 import java.time.Instant;
 
 @Entity
-@Table(name = "demand_scoring", uniqueConstraints = @UniqueConstraint(name = "uk_demand_scoring_demand_criterion", columnNames = {
-        "demand_id", "criterion_id" }), indexes = {
-                @Index(name = "idx_demand_scoring_demand", columnList = "demand_id"),
+@Table(name = "demand_scoring", uniqueConstraints = @UniqueConstraint(name = "uk_demand_scoring_cycle_criterion", columnNames = {
+        "planning_cycle_id", "criterion_id" }), indexes = {
+                @Index(name = "idx_demand_scoring_cycle", columnList = "planning_cycle_id"),
                 @Index(name = "idx_demand_scoring_criterion", columnList = "criterion_id"),
                 @Index(name = "idx_demand_scoring_scored_at", columnList = "scored_at")
         })
@@ -30,9 +30,9 @@ import java.time.Instant;
 @JsonIgnoreProperties({ "hibernateLazyInitializer", "handler" })
 public class DemandScoring extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "demand_id", nullable = false)
+    @JoinColumn(name = "planning_cycle_id", nullable = false)
     @JsonIgnore
-    private Demand demand;
+    private DemandPlanningCycle planningCycle;
 
     @ManyToOne(fetch = FetchType.EAGER, optional = false)
     @JoinColumn(name = "criterion_id", nullable = false)

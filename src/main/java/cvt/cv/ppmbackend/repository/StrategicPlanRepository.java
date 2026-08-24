@@ -10,8 +10,10 @@ import org.springframework.data.domain.*;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
 public interface StrategicPlanRepository extends JpaRepository<StrategicPlan, UUID>, JpaSpecificationExecutor<StrategicPlan> {
-    List<StrategicPlan> findAllByOrderByStartYearDesc();
-
     Optional<StrategicPlan> findFirstByStatus(StrategicPlanStatus status);
     boolean existsByNameIgnoreCaseAndStartYearAndEndYearAndDeletedAtIsNull(String name,Integer startYear,Integer endYear);
+    List<StrategicPlan> findAllByDeletedAtIsNullOrderByStartYearDesc();
+    boolean existsByStatusInAndDeletedAtIsNull(List<StrategicPlanStatus> statuses);
+    Optional<StrategicPlan> findFirstByStatusInAndDeletedAtIsNull(List<StrategicPlanStatus> statuses);
+    Optional<StrategicPlan> findFirstByStatusAndDeletedAtIsNull(StrategicPlanStatus status);
 }

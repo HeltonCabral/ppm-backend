@@ -3,9 +3,6 @@ package cvt.cv.ppmbackend.repository;
 import cvt.cv.ppmbackend.entity.Demand;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -13,31 +10,4 @@ public interface DemandRepository extends JpaRepository<Demand, UUID>, JpaSpecif
     Optional<Demand> findByIdAndDeletedAtIsNull(UUID id);
 
     boolean existsByCode(String code);
-
-    @Query("SELECT CASE WHEN COUNT(d) > 0 THEN true ELSE false END FROM Demand d " +
-           "WHERE d.responsibleCommittee.id = :committeeId")
-    boolean existsByResponsibleCommitteeId(@Param("committeeId") UUID committeeId);
-
-    List<Demand> findByResponsibleCommittee_IdAndStatusAndDeletedAtIsNullOrderByPreScoreDescCreatedAtDesc(
-            UUID committeeId,
-            String status);
-
-    List<Demand> findByResponsibleCommittee_IdInAndStatusAndDeletedAtIsNullOrderByPreScoreDescCreatedAtDesc(
-            List<UUID> committeeIds,
-            String status);
-
-    @Query("SELECT d FROM Demand d WHERE d.strategicPlan.id = :planId AND d.status IN :decisions AND d.deletedAt IS NULL")
-    List<Demand> findByStrategicPlanIdAndCommitteeDecisionIn(
-            @Param("planId") UUID planId,
-            @Param("decisions") List<String> decisions);
-
-    @Query("SELECT d FROM Demand d WHERE d.strategicPlan.id = :planId AND d.status IN :statuses AND d.deletedAt IS NULL")
-    List<Demand> findByStrategicPlanIdAndStatusIn(
-            @Param("planId") UUID planId,
-            @Param("statuses") List<String> statuses);
-
-    @Query("SELECT d FROM Demand d WHERE d.strategicPlan.id = :planId AND d.status IN :statuses AND d.deletedAt IS NULL ORDER BY d.portfolioRank")
-    List<Demand> findByStrategicPlanIdAndStatusesOrdered(
-            @Param("planId") UUID planId,
-            @Param("statuses") List<String> statuses);
 }

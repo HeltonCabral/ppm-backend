@@ -1,11 +1,14 @@
 package cvt.cv.ppmbackend.dto;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import cvt.cv.ppmbackend.dto.DemandPlanningCycleDtos.CurrentCycleSummary;
+import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import cvt.cv.ppmbackend.enums.DirectionParticipationType;
 import cvt.cv.ppmbackend.enums.DemandComplexity;
 import cvt.cv.ppmbackend.enums.ProfileCategory;
 import cvt.cv.ppmbackend.enums.PlanType;
 import cvt.cv.ppmbackend.enums.Priority;
+import cvt.cv.ppmbackend.enums.RateUnit;
 import cvt.cv.ppmbackend.validation.ValidReprioritizeRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -14,11 +17,11 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
-import cvt.cv.ppmbackend.dto.DemandScoringDtos.DemandScoringResponse;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 public final class DemandDtos {
@@ -44,12 +47,7 @@ public final class DemandDtos {
                         @NotNull UUID typeId,
                         @Size(max = 80) String origin,
                         @Size(max = 120) String easyVistaRef,
-                        UUID strategicPlanId,
-                        UUID operationalPlanId,
-                        UUID strategicPillarId,
-                        UUID strategicObjectiveId,
-                        UUID programId,
-                        UUID committeeId,
+                        Set<UUID> supplierIds,
                         UUID domainId,
                         @Size(max = 150) String impactedSystem,
                         @Size(max = 40) String initialPriority,
@@ -60,18 +58,9 @@ public final class DemandDtos {
                         @PositiveOrZero BigDecimal estimatedBudget,
                         LocalDate desiredDate,
                         @Size(max = 10000) String notes,
-                        @Size(max = 40) String capacityStatus,
-                        @Size(max = 40) String riskStatus,
                         @Size(max = 10000) String risksIdentified,
                         @Size(max = 10000) String dependenciesIdentified,
                         @PositiveOrZero Integer dependenciesCount,
-
-                        BigDecimal scoreTotal,
-                        @PositiveOrZero Integer portfolioRank,
-                        @PositiveOrZero Integer directionRank,
-                        @Size(max = 40) String approvalType,
-                        @Size(max = 60) String committeeDecision,
-                        @Size(max = 10000) String rejectionReason,
                         @Valid List<AttachmentInput> attachments,
                         @Valid List<ParticipatingDirectionCreate> participatingDirections,
                         @Valid List<DemandProfileRequirementInput> profileRequirements) {
@@ -90,12 +79,7 @@ public final class DemandDtos {
                         @NotNull UUID typeId,
                         @Size(max = 80) String origin,
                         @Size(max = 120) String easyVistaRef,
-                        UUID strategicPlanId,
-                        UUID operationalPlanId,
-                        UUID strategicPillarId,
-                        UUID strategicObjectiveId,
-                        UUID programId,
-                        UUID committeeId,
+                        Set<UUID> supplierIds,
                         UUID domainId,
                         @Size(max = 150) String impactedSystem,
                         @Size(max = 40) String initialPriority,
@@ -106,18 +90,9 @@ public final class DemandDtos {
                         @PositiveOrZero BigDecimal estimatedBudget,
                         LocalDate desiredDate,
                         @Size(max = 10000) String notes,
-                        @Size(max = 40) String capacityStatus,
-                        @Size(max = 40) String riskStatus,
                         @Size(max = 10000) String risksIdentified,
                         @Size(max = 10000) String dependenciesIdentified,
                         @PositiveOrZero Integer dependenciesCount,
-
-                        BigDecimal scoreTotal,
-                        @PositiveOrZero Integer portfolioRank,
-                        @PositiveOrZero Integer directionRank,
-                        @Size(max = 40) String approvalType,
-                        @Size(max = 60) String committeeDecision,
-                        @Size(max = 10000) String rejectionReason,
                         @Valid List<ParticipatingDirectionCreate> participatingDirections,
                         @Valid List<DemandProfileRequirementInput> profileRequirements) {
         }
@@ -135,12 +110,7 @@ public final class DemandDtos {
                         UUID typeId,
                         @Size(max = 80) String origin,
                         @Size(max = 120) String easyVistaRef,
-                        UUID strategicPlanId,
-                        UUID operationalPlanId,
-                        UUID strategicPillarId,
-                        UUID strategicObjectiveId,
-                        UUID programId,
-                        UUID committeeId,
+                        Set<UUID> supplierIds,
                         UUID domainId,
                         @Size(max = 150) String impactedSystem,
                         @Size(max = 40) String initialPriority,
@@ -151,23 +121,11 @@ public final class DemandDtos {
                         @PositiveOrZero BigDecimal estimatedBudget,
                         LocalDate desiredDate,
                         @Size(max = 10000) String notes,
-                        @Size(max = 40) String capacityStatus,
-                        @Size(max = 40) String riskStatus,
                         @Size(max = 10000) String risksIdentified,
                         @Size(max = 10000) String dependenciesIdentified,
                         @PositiveOrZero Integer dependenciesCount,
-
-                        BigDecimal scoreTotal,
-                        @PositiveOrZero Integer portfolioRank,
-                        @PositiveOrZero Integer directionRank,
-                        @Size(max = 40) String approvalType,
-                        @Size(max = 60) String committeeDecision,
-                        @Size(max = 10000) String rejectionReason,
                         @Valid List<ParticipatingDirectionCreate> participatingDirections,
                         @Valid List<DemandProfileRequirementInput> profileRequirements) {
-        }
-
-        public record StatusPatch(@NotBlank @Size(max = 50) String status, @Size(max = 4000) String reason) {
         }
 
         public record AssignCommitteeRequest(@NotNull UUID committeeId) {
@@ -251,6 +209,18 @@ public final class DemandDtos {
         public record ProjectSummary(UUID id, String name, String status) {
         }
 
+        public record CurrencySummary(UUID id, String code, String name, String symbol) {
+        }
+
+        public record SupplierSummary(
+                        UUID id,
+                        String name,
+                        String country,
+                        BigDecimal ratePerHour,
+                        RateUnit rateUnit,
+                        CurrencySummary currency) {
+        }
+
         public record DemandResponse(
                         UUID id,
                         String code,
@@ -267,13 +237,6 @@ public final class DemandDtos {
                         String type,
                         String origin,
                         String easyVistaRef,
-                        UUID strategicPlanId,
-                        UUID operationalPlanId,
-                        UUID strategicPillarId,
-                        UUID strategicObjectiveId,
-                        UUID programId,
-                        UUID committeeId,
-                        UUID responsibleCommitteeId,
                         UUID domainId,
                         String domain,
                         String impactedSystem,
@@ -285,11 +248,6 @@ public final class DemandDtos {
                         BigDecimal estimatedBudget,
                         LocalDate desiredDate,
                         String notes,
-                        String status,
-                        boolean inStrategicCommittee,
-                        Instant strategicCommitteeAt,
-                        String capacityStatus,
-                        String riskStatus,
                         String risksIdentified,
                         String dependenciesIdentified,
                         Integer directionsCount,
@@ -300,21 +258,6 @@ public final class DemandDtos {
                         DemandComplexity complexity,
                         Integer estimatedDurationMonths,
                         LocalDate plannedStartDate,
-                        BigDecimal scoreTotal,
-                        String scoreStatus,
-                        Instant scoreCalculatedAt,
-                        Instant scoreInvalidatedAt,
-                        String scoreInvalidationReason,
-                        JsonNode previousScoreSnapshot,
-                        BigDecimal preScore,
-                        String preScoreClassification,
-                        Integer portfolioRank,
-                        Integer directionRank,
-                        Integer committeeRank,
-                        String approvalType,
-                        String committeeDecision,
-                        String rejectionReason,
-                        UUID convertedProjectId,
                         Instant createdAt,
                         String createdBy,
                         Instant updatedAt,
@@ -322,18 +265,11 @@ public final class DemandDtos {
                         Long version,
                         LookupValueSummary typeData,
                         LookupValueSummary domainData,
-                        StrategicPlanSummary strategicPlan,
-                        OperationalPlanSummary operationalPlan,
-                        StrategicPillarSummary strategicPillar,
-                        StrategicObjectiveSummary strategicObjective,
-                        ProgramSummary program,
-                        CommitteeSummary committee,
-                        CommitteeSummary responsibleCommittee,
-                        ProjectSummary convertedProject,
+                        CurrentCycleSummary currentPlanningCycle,
                         List<DemandAttachmentResponse> attachments,
                         List<ParticipatingDirectionResponse> participatingDirections,
                         List<DemandProfileRequirementResponse> profileRequirements,
-                        DemandScoringResponse calculatedScoring) {
+                        List<SupplierSummary> suppliers) {
         }
 
         public record DemandHistoryResponse(
@@ -358,7 +294,7 @@ public final class DemandDtos {
         public record DemandConvertInfo(
                         UUID id,
                         String code,
-                        String status,
+                        DemandPlanningStatus status,
                         UUID convertedProjectId,
                         String scoreStatus,
                         Instant scoreCalculatedAt,
@@ -411,7 +347,7 @@ public final class DemandDtos {
                         String title,
                         Integer previousPortfolioRank,
                         Integer newPortfolioRank,
-                        String status,
+                        DemandPlanningStatus status,
                         String reprioritizationReason,
                         String reprioritizationJustification,
                         Instant reprioritizedAt,

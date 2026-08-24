@@ -15,6 +15,7 @@ public interface DemandDependencyRepository extends JpaRepository<DemandDependen
     Optional<DemandDependency> findByIdAndDemand_Id(UUID id, UUID demandId);
     boolean existsByDemand_IdAndDependsOnDemand_Id(UUID demandId, UUID dependsOnDemandId);
     long countByDemand_Id(UUID demandId);
+    List<DemandDependency> findByDemand_IdIn(Collection<UUID> demandIds);
 
     @Query("select dependency.dependsOnDemand.id from DemandDependency dependency "
             + "where dependency.demand.id in :demandIds")

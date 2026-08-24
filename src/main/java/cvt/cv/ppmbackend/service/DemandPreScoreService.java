@@ -1,6 +1,7 @@
 package cvt.cv.ppmbackend.service;
 
 import cvt.cv.ppmbackend.entity.Demand;
+import cvt.cv.ppmbackend.entity.DemandPlanningCycle;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -11,7 +12,7 @@ import java.time.temporal.ChronoUnit;
 @Service
 public class DemandPreScoreService {
 
-    public PreScoreResult calculate(Demand demand) {
+    public PreScoreResult calculate(Demand demand, DemandPlanningCycle cycle) {
         int priorityScore = calculatePriorityScore(demand.getInitialPriority());
         int urgencyScore = calculateUrgencyScore(demand.getUrgency());
         int effortScore = calculateEffortScore(demand.getEstimatedEffort());
@@ -31,8 +32,8 @@ public class DemandPreScoreService {
 
         String classification = classifyPreScore(preScore);
 
-        demand.setPreScore(preScore);
-        demand.setPreScoreClassification(classification);
+        cycle.setPreScore(preScore);
+        cycle.setPreScoreClassification(classification);
 
         return new PreScoreResult(preScore, classification);
     }

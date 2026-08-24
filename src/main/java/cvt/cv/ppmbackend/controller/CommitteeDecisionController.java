@@ -7,6 +7,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.UUID;
+
 @RestController
 @RequestMapping("/committee-decisions")
 public class CommitteeDecisionController {
@@ -26,5 +28,10 @@ public class CommitteeDecisionController {
         BulkDeliberationResponse response = committeeDecisionService.deliberate(request, actorId);
         
         return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
+
+    @GetMapping("/strategic-plans/{strategicPlanId}/dashboard")
+    public DecisionDashboardResponse dashboard(@PathVariable UUID strategicPlanId) {
+        return committeeDecisionService.dashboard(strategicPlanId);
     }
 }

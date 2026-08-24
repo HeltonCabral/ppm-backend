@@ -7,7 +7,7 @@ import cvt.cv.ppmbackend.enums.CommitteeStatus;
 import cvt.cv.ppmbackend.exception.DomainException;
 import cvt.cv.ppmbackend.exception.ResourceNotFoundException;
 import cvt.cv.ppmbackend.repository.CommitteeRepository;
-import cvt.cv.ppmbackend.repository.DemandRepository;
+import cvt.cv.ppmbackend.repository.DemandPlanningCycleRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -25,11 +25,11 @@ import java.util.UUID;
 @Transactional
 public class CommitteeService {
     private final CommitteeRepository committees;
-    private final DemandRepository demands;
+    private final DemandPlanningCycleRepository planningCycles;
 
-    public CommitteeService(CommitteeRepository committees, DemandRepository demands) {
+    public CommitteeService(CommitteeRepository committees, DemandPlanningCycleRepository planningCycles) {
         this.committees = committees;
-        this.demands = demands;
+        this.planningCycles = planningCycles;
     }
 
     @Transactional(readOnly = true)
@@ -83,7 +83,7 @@ public class CommitteeService {
 
     public void delete(UUID id) {
         Committee committee = requireCommittee(id);
-        if (demands.existsByResponsibleCommitteeId(id)) {
+        if (planningCycles.existsByResponsibleCommittee_Id(id)) {
             throw new DomainException(
                     HttpStatus.CONFLICT,
                     "COMMITTEE_IN_USE",

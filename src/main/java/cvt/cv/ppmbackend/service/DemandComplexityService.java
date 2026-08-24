@@ -8,6 +8,7 @@ import cvt.cv.ppmbackend.dto.ComplexityConfigDtos.LevelConfigResponse;
 import cvt.cv.ppmbackend.entity.ComplexityCriterionConfig;
 import cvt.cv.ppmbackend.entity.ComplexityLevelConfig;
 import cvt.cv.ppmbackend.entity.Demand;
+import cvt.cv.ppmbackend.entity.DemandPlanningCycle;
 import cvt.cv.ppmbackend.enums.ComplexityCriterion;
 import cvt.cv.ppmbackend.enums.DemandComplexity;
 import cvt.cv.ppmbackend.exception.BadRequestException;
@@ -44,17 +45,20 @@ public class DemandComplexityService {
     private final DemandParticipatingDirectionRepository participatingDirections;
     private final DemandProfileRequirementService profileRequirements;
     private final DemandDependencyRepository dependencies;
+    private final DemandPlanningCycleService planningCycleService;
 
     public DemandComplexityService(ComplexityCriterionConfigRepository criterionConfigs,
             ComplexityLevelConfigRepository levelConfigs, DemandRepository demands,
             DemandParticipatingDirectionRepository participatingDirections,
-            DemandProfileRequirementService profileRequirements, DemandDependencyRepository dependencies) {
+            DemandProfileRequirementService profileRequirements, DemandDependencyRepository dependencies,
+            DemandPlanningCycleService planningCycleService) {
         this.criterionConfigs = criterionConfigs;
         this.levelConfigs = levelConfigs;
         this.demands = demands;
         this.participatingDirections = participatingDirections;
         this.profileRequirements = profileRequirements;
         this.dependencies = dependencies;
+        this.planningCycleService = planningCycleService;
     }
 
     @Transactional(readOnly = true)
@@ -119,9 +123,10 @@ public class DemandComplexityService {
         return getLevels();
     }
 
-    public DemandComplexityResponse calculate(java.util.UUID demandId, String actor) {
+    public DemandComplexityResponse calculate(java.util.UUID demandId, java.util.UUID strategicPlanId, String actor) {
         Demand demand = demands.findByIdAndDeletedAtIsNull(demandId)
                 .orElseThrow(() -> new ResourceNotFoundException("Demanda não encontrada: " + demandId));
+        DemandPlanningCycle cycle = planningCycleService.resolveForMutation(demandId, strategicPlanId);
 
         Map<ComplexityCriterion, ComplexityCriterionConfig> configs = activeCriterionConfigs();
         int directionsCount = countDirections(demand);
@@ -145,11 +150,12 @@ public class DemandComplexityService {
         demand.setComplexityScore(complexityScore);
         demand.setComplexity(level.getLevel());
         demand.setEstimatedDurationMonths(level.getEstimatedDurationMonths());
-        demand.setStatus("IN_ANALYSIS");
         demand.setPlannedStartDate(demand.getDesiredDate() == null ? null
                 : demand.getDesiredDate().minusMonths(level.getEstimatedDurationMonths()));
         demand.setUpdatedBy(actor == null || actor.isBlank() ? "system" : actor.trim());
         Demand saved = demands.save(demand);
+        planningCycleService.transitionStatus(cycle, cvt.cv.ppmbackend.enums.DemandPlanningStatus.UNDER_ANALYSIS,
+                "Complexidade recalculada", actor);
 
         return new DemandComplexityResponse(saved.getId(), saved.getDirectionsCount(), saved.getProfilesCount(),
                 saved.getTotalResources(), saved.getDependenciesCount(), saved.getComplexityScore(),
