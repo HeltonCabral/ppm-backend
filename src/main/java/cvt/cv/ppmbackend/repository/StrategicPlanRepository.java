@@ -15,5 +15,6 @@ public interface StrategicPlanRepository extends JpaRepository<StrategicPlan, UU
     List<StrategicPlan> findAllByDeletedAtIsNullOrderByStartYearDesc();
     boolean existsByStatusInAndDeletedAtIsNull(List<StrategicPlanStatus> statuses);
     Optional<StrategicPlan> findFirstByStatusInAndDeletedAtIsNull(List<StrategicPlanStatus> statuses);
+    List<StrategicPlan> findByStatusInAndDeletedAtIsNull(List<StrategicPlanStatus> statuses);
     Optional<StrategicPlan> findFirstByStatusAndDeletedAtIsNull(StrategicPlanStatus status);
 }

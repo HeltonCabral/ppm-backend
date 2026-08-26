@@ -22,6 +22,8 @@ public class StrategicPillar extends BaseEntity {
     private String description;
     @Column(length = 100)
     private String icon;
+    @Column(name = "display_order")
+    private Integer displayOrder;
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "strategic_plan_id")
     @JsonIgnore

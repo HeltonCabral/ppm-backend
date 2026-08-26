@@ -39,8 +39,8 @@ public class Demand extends BaseEntity {
     @Column(nullable = false, length = 250)
     private String title;
 
-    @Column(columnDefinition = "TEXT")
-    private String description;
+    @Column(length = 1000)
+    private String summary;
 
     @Column(length = 150)
     private String requester;
@@ -89,17 +89,17 @@ public class Demand extends BaseEntity {
     @Column(name = "impacted_system", length = 150)
     private String impactedSystem;
 
-    @Column(name = "initial_priority", length = 40)
-    private String initialPriority;
+    @Column(name = "current_evidence", columnDefinition = "TEXT")
+    private String currentEvidence;
 
-    @Column(name = "estimated_effort", length = 40)
-    private String estimatedEffort;
+    @Column(name = "problem_statement", columnDefinition = "TEXT", nullable = false)
+    private String problemStatement;
 
-    @Column(name = "expected_impact", columnDefinition = "TEXT")
-    private String expectedImpact;
+    @Column(name = "desired_outcome", columnDefinition = "TEXT", nullable = false)
+    private String desiredOutcome;
 
-    @Column(name = "expected_benefit", columnDefinition = "TEXT")
-    private String expectedBenefit;
+    @Column(name = "proposed_response", columnDefinition = "TEXT")
+    private String proposedResponse;
 
     @Column(length = 40)
     private String urgency;
@@ -155,6 +155,10 @@ public class Demand extends BaseEntity {
     @OneToMany(mappedBy = "demand", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     private List<DemandDependency> dependencies = new ArrayList<>();
+
+    @OneToMany(mappedBy = "demand", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnore
+    private List<DemandSuccessCriterion> successCriteria = new ArrayList<>();
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

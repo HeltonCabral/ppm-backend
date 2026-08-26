@@ -43,6 +43,7 @@ public class ScoringCriterionService extends AbstractCrudService<ScoringCriterio
         entity.setMinScore(request.minScore());
         entity.setMaxScore(request.maxScore());
         entity.setOrderIndex(request.orderIndex());
+        entity.setDescription(request.description());
         entity.setActive(request.active() == null ? Boolean.TRUE : request.active());
         return entity;
     }

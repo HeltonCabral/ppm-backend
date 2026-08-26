@@ -44,6 +44,11 @@ public class DemandPlanningCycle extends BaseEntity {
     private StrategicPillar strategicPillar;
 
     @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "strategic_element_id")
+    @JsonIgnore
+    private StrategicElement strategicElement;
+
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "strategic_objective_id")
     @JsonIgnore
     private StrategicObjective strategicObjective;
@@ -67,12 +72,6 @@ public class DemandPlanningCycle extends BaseEntity {
 
     @Column(name = "strategic_committee_at")
     private Instant strategicCommitteeAt;
-
-    @Column(name = "pre_score", precision = 5, scale = 2)
-    private BigDecimal preScore;
-
-    @Column(name = "pre_score_classification", length = 20)
-    private String preScoreClassification;
 
     @Column(name = "score_total", precision = 19, scale = 2)
     private BigDecimal scoreTotal;

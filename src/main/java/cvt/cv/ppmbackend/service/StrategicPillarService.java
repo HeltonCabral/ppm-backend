@@ -22,6 +22,7 @@ public class StrategicPillarService extends AbstractCrudService<StrategicPillar,
         e.setName(r.name());
         e.setDescription(r.description());
         e.setIcon(r.icon());
+        e.setDisplayOrder(r.displayOrder());
         e.setStrategicPlan(r.strategicPlanId() == null ? null : strategicPlans.findById(r.strategicPlanId()));
         return e;
     }

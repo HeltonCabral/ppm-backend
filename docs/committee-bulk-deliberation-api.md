@@ -21,7 +21,6 @@ Permite realizar deliberação em massa de demandas no comité com base em filtr
     "scoreMax": 100,
     "committeeId": "uuid-opcional",
     "directionCode": "DIR-COMERCIAL",
-    "priority": "HIGH",
     "urgency": "HIGH",
     "riskLevel": "HIGH"
   },
@@ -41,7 +40,6 @@ Permite realizar deliberação em massa de demandas no comité com base em filtr
 | `scoreMax` | BigDecimal | Não | Score máximo para filtrar demandas |
 | `committeeId` | UUID | Não | ID do comité (se não informado, considera todos) |
 | `directionCode` | String(60) | Não | Código da direção (se não informado, considera todas) |
-| `priority` | String(40) | Não | Prioridade inicial (LOW, MEDIUM, HIGH, CRITICAL) |
 | `urgency` | String(40) | Não | Urgência (LOW, MEDIUM, HIGH, CRITICAL) |
 | `riskLevel` | String(40) | Não | Nível de risco (NOT_EVALUATED, LOW, MEDIUM, HIGH, CRITICAL) |
 
@@ -111,7 +109,7 @@ String(10000) - Justificação da decisão
 
 Apenas demandas nos seguintes estados podem ser deliberadas:
 - `IN_STRATEGIC_COMMITTEE`
-- `READY_FOR_COMMITTEE`
+- `AWAITING_COMMITTEE`
 - `PRIORITIZED`
 
 ### Transições de Estado

@@ -37,7 +37,11 @@ import java.util.stream.Collectors;
 public class DemandComplexityService {
     private static final BigDecimal SCORE_STEP = new BigDecimal("0.01");
     private static final BigDecimal MIN_SCORE = new BigDecimal("1.00");
-    private static final BigDecimal MAX_SCORE = new BigDecimal("4.00");
+    private static final BigDecimal MAX_SCORE = new BigDecimal("5.00");
+    private static final BigDecimal RAW_MIN = BigDecimal.ONE;
+    private static final BigDecimal RAW_MAX = new BigDecimal("4");
+    private static final BigDecimal RESCALE_FACTOR = MAX_SCORE.subtract(MIN_SCORE)
+            .divide(RAW_MAX.subtract(RAW_MIN), 10, RoundingMode.HALF_UP);
 
     private final ComplexityCriterionConfigRepository criterionConfigs;
     private final ComplexityLevelConfigRepository levelConfigs;
@@ -139,8 +143,10 @@ public class DemandComplexityService {
                 + score(configs.get(ComplexityCriterion.PROFILES_COUNT), profilesCount)
                 + score(configs.get(ComplexityCriterion.TOTAL_RESOURCES), totalResources)
                 + score(configs.get(ComplexityCriterion.DEPENDENCIES_COUNT), dependenciesCount);
-        BigDecimal complexityScore = BigDecimal.valueOf(totalScore)
-                .divide(BigDecimal.valueOf(ComplexityCriterion.values().length), 2, RoundingMode.HALF_UP);
+        BigDecimal rawAverage = BigDecimal.valueOf(totalScore)
+                .divide(BigDecimal.valueOf(ComplexityCriterion.values().length), 4, RoundingMode.HALF_UP);
+        BigDecimal complexityScore = rawAverage.subtract(RAW_MIN).multiply(RESCALE_FACTOR).add(MIN_SCORE)
+                .setScale(2, RoundingMode.HALF_UP);
         ComplexityLevelConfig level = levelFor(complexityScore);
 
         demand.setDirectionsCount(directionsCount);
@@ -154,7 +160,7 @@ public class DemandComplexityService {
                 : demand.getDesiredDate().minusMonths(level.getEstimatedDurationMonths()));
         demand.setUpdatedBy(actor == null || actor.isBlank() ? "system" : actor.trim());
         Demand saved = demands.save(demand);
-        planningCycleService.transitionStatus(cycle, cvt.cv.ppmbackend.enums.DemandPlanningStatus.UNDER_ANALYSIS,
+        planningCycleService.transitionStatus(cycle, cvt.cv.ppmbackend.enums.DemandPlanningStatus.IN_ANALYSIS,
                 "Complexidade recalculada", actor);
 
         return new DemandComplexityResponse(saved.getId(), saved.getDirectionsCount(), saved.getProfilesCount(),
@@ -247,7 +253,7 @@ public class DemandComplexityService {
         }
         if (scale(requests.get(DemandComplexity.LOW).minScore()).compareTo(MIN_SCORE) != 0
                 || scale(requests.get(DemandComplexity.VERY_HIGH).maxScore()).compareTo(MAX_SCORE) != 0) {
-            throw new BadRequestException("Os níveis devem cobrir scores de 1.00 a 4.00");
+            throw new BadRequestException("Os níveis devem cobrir scores de 1.00 a 5.00");
         }
         DemandComplexity[] levels = DemandComplexity.values();
         for (int i = 0; i < levels.length - 1; i++) {

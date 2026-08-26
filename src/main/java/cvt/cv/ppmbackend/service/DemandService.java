@@ -2,9 +2,7 @@ package cvt.cv.ppmbackend.service;
 
 import cvt.cv.ppmbackend.dto.DemandDtos.*;
 import cvt.cv.ppmbackend.dto.DemandPlanningCycleDtos;
-import cvt.cv.ppmbackend.dto.DemandPlanningCycleDtos.CurrentCycleSummary;
 import cvt.cv.ppmbackend.dto.CommitteeSuggestionResponse;
-import cvt.cv.ppmbackend.dto.PreScoreResponse;
 import cvt.cv.ppmbackend.entity.*;
 import cvt.cv.ppmbackend.enums.CommitteeStatus;
 import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
@@ -32,7 +30,6 @@ import static cvt.cv.ppmbackend.enums.DemandPlanningStatus.*;
 @Transactional
 public class DemandService {
     private static final Set<String> PRIORITY_CODES = Set.of("LOW", "MEDIUM", "HIGH", "CRITICAL");
-    private static final Set<String> EFFORT_CODES = Set.of("LOW", "MEDIUM", "HIGH");
 
     private final DemandRepository demands;
     private final DemandPlanningCycleRepository planningCycles;
@@ -49,8 +46,8 @@ public class DemandService {
     private final LookupValueService lookups;
     private final DemandScoringService scoringService;
     private final DemandScoreLifecycleService scoreLifecycle;
-    private final DemandPreScoreService preScoreService;
     private final DemandProfileRequirementService profileRequirements;
+    private final DemandSuccessCriterionService successCriteria;
     private final SupplierRepository supplierRepository;
     private final DemandPlanningCycleService planningCycleService;
 
@@ -62,7 +59,8 @@ public class DemandService {
             ProjectService projects, ProgramService programs, OperationalPlanService operationalPlans,
             LookupValueService lookups,
             DemandScoringService scoringService, DemandScoreLifecycleService scoreLifecycle,
-            DemandPreScoreService preScoreService, DemandProfileRequirementService profileRequirements,
+            DemandProfileRequirementService profileRequirements,
+            DemandSuccessCriterionService successCriteria,
             SupplierRepository supplierRepository, DemandPlanningCycleService planningCycleService) {
         this.demands = demands;
         this.planningCycles = planningCycles;
@@ -79,8 +77,8 @@ public class DemandService {
         this.lookups = lookups;
         this.scoringService = scoringService;
         this.scoreLifecycle = scoreLifecycle;
-        this.preScoreService = preScoreService;
         this.profileRequirements = profileRequirements;
+        this.successCriteria = successCriteria;
         this.supplierRepository = supplierRepository;
         this.planningCycleService = planningCycleService;
     }
@@ -92,7 +90,8 @@ public class DemandService {
         demand.setUpdatedBy(actor(actorId));
         apply(req, demand);
         Demand saved = demands.save(demand);
-        DemandPlanningCycle cycle = planningCycleService.createInitialCycle(saved, actor(actorId));
+        DemandPlanningCycle cycle = planningCycleService.createInitialCycle(saved, req.strategicPillarId(),
+                req.strategicElementId(), req.strategicObjectiveId(), actor(actorId));
         if (req.attachments() != null) {
             req.attachments().forEach(a -> addAttachment(saved, new AttachmentCreate(a.name(), a.url(), a.contentType()),
                     actorId));
@@ -113,6 +112,7 @@ public class DemandService {
             });
         }
         profileRequirements.sync(saved, req.profileRequirements());
+        successCriteria.sync(saved, req.successCriteria());
         historyService.log(saved, "CREATED", null, cycle.getStatus().name(), "Demanda criada", actor(actorId),
                 actor(actorId), Map.of("code", saved.getCode()));
         return map(saved);
@@ -149,6 +149,9 @@ public class DemandService {
             });
         }
         profileRequirements.sync(saved, req.profileRequirements());
+        successCriteria.sync(saved, req.successCriteria());
+        applyStrategicFramingIfRequested(saved, req.strategicPillarId(), req.strategicElementId(),
+                req.strategicObjectiveId(), actorId);
 
         historyService.log(saved, "UPDATED", null, null, "Demanda atualizada", actor(actorId), actor(actorId), Map.of());
         return map(saved);
@@ -186,10 +189,23 @@ public class DemandService {
             });
         }
         profileRequirements.sync(saved, req.profileRequirements());
+        successCriteria.sync(saved, req.successCriteria());
+        applyStrategicFramingIfRequested(saved, req.strategicPillarId(), req.strategicElementId(),
+                req.strategicObjectiveId(), actorId);
 
         historyService.log(saved, "UPDATED", null, null, "Demanda atualizada parcialmente", actor(actorId),
                 actor(actorId), Map.of());
         return map(saved);
+    }
+
+    private void applyStrategicFramingIfRequested(Demand demand, UUID strategicPillarId, UUID strategicElementId,
+            UUID strategicObjectiveId, String actorId) {
+        if (strategicPillarId == null && strategicElementId == null && strategicObjectiveId == null) {
+            return;
+        }
+        planningCycleService.getCurrentPlanningCycle(demand.getId()).ifPresent(cycle ->
+                planningCycleService.updateEnrichment(cycle, strategicPillarId, strategicElementId,
+                        strategicObjectiveId, null, null, null, actor(actorId)));
     }
 
     @Transactional
@@ -258,8 +274,9 @@ public class DemandService {
         Specification<DemandPlanningCycle> spec = (root, query, cb) -> cb.and(
                 cb.equal(root.get("strategicPlan").get("id"), strategicPlanId),
                 root.get("responsibleCommittee").get("id").in(committeeIds),
-                cb.equal(root.get("status"), PRIORITIZATION));
-        return planningCycles.findAll(spec, Sort.by(Sort.Direction.DESC, "preScore")).stream()
+                cb.equal(root.get("status"), IN_PRIORITIZATION),
+                cb.equal(root.get("scoreStatus"), DemandScoreLifecycleService.SCORE_NOT_CALCULATED));
+        return planningCycles.findAll(spec, Sort.by(Sort.Direction.ASC, "cycleEntryAt")).stream()
                 .map(cycle -> map(cycle.getDemand()))
                 .toList();
     }
@@ -271,18 +288,6 @@ public class DemandService {
         DemandPlanningCycle cycle = planningCycleService.resolveForMutation(id, strategicPlanId);
         planningCycleService.assignCommittee(cycle, committee, actor(actorId));
         return map(demand);
-    }
-
-    @Transactional
-    public PreScoreResponse calculatePreScore(UUID id, UUID strategicPlanId, String actorId) {
-        Demand demand = entity(id);
-        DemandPlanningCycle cycle = planningCycleService.resolveForMutation(id, strategicPlanId);
-        DemandPreScoreService.PreScoreResult result = preScoreService.calculate(demand, cycle);
-        planningCycles.save(cycle);
-        historyService.log(demand, "PRE_SCORE_CALCULATED", cycle.getStatus().name(), cycle.getStatus().name(),
-                "Pré-score calculado", actor(actorId), actor(actorId),
-                Map.of("preScore", result.preScore().toString(), "classification", result.preScoreClassification()));
-        return new PreScoreResponse(result.preScore(), result.preScoreClassification());
     }
 
     @Transactional
@@ -347,7 +352,7 @@ public class DemandService {
 
         Project p = new Project();
         p.setName(projectName);
-        p.setDescription(req.description() != null ? req.description() : d.getDescription());
+        p.setDescription(req.description() != null ? req.description() : d.getSummary());
         p.setProgram(program);
         p.setOperationalPlan(operationalPlan);
         p.setDomain(domain);
@@ -369,8 +374,8 @@ public class DemandService {
             p.getSuppliers().add(mainSupplier);
         }
         p.setImpactedSystem(req.impactedSystem() != null ? req.impactedSystem() : d.getImpactedSystem());
-        p.setExpectedBenefits(req.expectedBenefits() != null ? req.expectedBenefits() : d.getExpectedBenefit());
-        p.setPriority(req.priority() != null ? req.priority() : mapPriority(d.getInitialPriority()));
+        p.setExpectedBenefits(req.expectedBenefits() != null ? req.expectedBenefits() : d.getDesiredOutcome());
+        p.setPriority(req.priority() != null ? req.priority() : Priority.MEDIUM);
         p.setExecutionRank(ranking);
         p.setBudgetLine(firstNonBlank(req.budgetLine(), domain != null ? domain.getCode() : null));
         p.setBudget(budget);
@@ -407,7 +412,7 @@ public class DemandService {
 
     @Transactional
     public PagedDemandsResponse list(int page, int size, String sort, String search, List<DemandPlanningStatus> status,
-            String type, String origin, String initialPriority, String urgency, UUID strategicPlanId,
+            String type, String origin, String urgency, UUID strategicPlanId,
             UUID operationalPlanId, UUID strategicPillarId, UUID strategicObjectiveId, UUID programId,
             String requester, String businessArea, LocalDate createdFrom, LocalDate createdTo) {
         String sortField = sort == null || sort.isBlank() ? "createdAt" : sort;
@@ -417,7 +422,7 @@ public class DemandService {
             spec = spec.and((root, query, cb) -> cb.or(
                     cb.like(cb.lower(root.get("code")), like),
                     cb.like(cb.lower(root.get("title")), like),
-                    cb.like(cb.lower(root.get("description")), like),
+                    cb.like(cb.lower(root.get("summary")), like),
                     cb.like(cb.lower(root.get("requester")), like),
                     cb.like(cb.lower(root.get("areaName")), like),
                     cb.like(cb.lower(root.get("directionName")), like),
@@ -429,8 +434,6 @@ public class DemandService {
             spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("type").get("code")), norm(type)));
         if (origin != null)
             spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("origin")), norm(origin)));
-        if (initialPriority != null)
-            spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("initialPriority")), norm(initialPriority)));
         if (urgency != null)
             spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("urgency")), norm(urgency)));
         if (requester != null)
@@ -502,7 +505,8 @@ public class DemandService {
             DemandPlanningCycleDtos.EnrichmentRequest req, String actorId) {
         DemandPlanningCycle cycle = planningCycleService.resolveForMutation(demandId, strategicPlanId);
         DemandPlanningCycle saved = planningCycleService.updateEnrichment(cycle, req.strategicPillarId(),
-                req.strategicObjectiveId(), req.programId(), req.capacityStatus(), req.riskStatus(), actor(actorId));
+                req.strategicElementId(), req.strategicObjectiveId(), req.programId(), req.capacityStatus(),
+                req.riskStatus(), actor(actorId));
         return mapCycle(saved);
     }
 
@@ -510,9 +514,10 @@ public class DemandService {
         return new DemandPlanningCycleDtos.Response(
                 c.getId(), c.getDemand().getId(),
                 mapStrategicPlan(c.getStrategicPlan()), mapOperationalPlan(c.getOperationalPlan()),
-                mapStrategicPillar(c.getStrategicPillar()), mapStrategicObjective(c.getStrategicObjective()),
+                mapStrategicPillar(c.getStrategicPillar()), mapStrategicElement(c.getStrategicElement()),
+                mapStrategicObjective(c.getStrategicObjective()),
                 mapProgram(c.getProgram()), c.getStatus(), mapCommittee(c.getResponsibleCommittee()),
-                c.isInStrategicCommittee(), c.getStrategicCommitteeAt(), c.getPreScore(), c.getPreScoreClassification(),
+                c.isInStrategicCommittee(), c.getStrategicCommitteeAt(),
                 c.getScoreTotal(), c.getScoreStatus(), c.getScoreCalculatedAt(), c.getScoreInvalidatedAt(),
                 c.getScoreInvalidationReason(), scoreLifecycle.previousScoreSnapshot(c), c.getPortfolioRank(),
                 c.getDirectionRank(), c.getCommitteeRank(), c.getCapacityStatus(), c.getRiskStatus(),
@@ -529,6 +534,12 @@ public class DemandService {
         if (pillar == null)
             return null;
         return new StrategicPillarSummary(pillar.getId(), pillar.getName(), pillar.getDescription());
+    }
+
+    private StrategicElementSummary mapStrategicElement(StrategicElement element) {
+        if (element == null)
+            return null;
+        return new StrategicElementSummary(element.getId(), element.getName(), element.getDescription());
     }
 
     private StrategicObjectiveSummary mapStrategicObjective(StrategicObjective objective) {
@@ -580,7 +591,7 @@ public class DemandService {
     private void apply(Create req, Demand d) {
         String normalizedOrigin = req.origin() == null || req.origin().isBlank() ? "MANUAL" : norm(req.origin());
         d.setTitle(req.title());
-        d.setDescription(req.description());
+        d.setSummary(req.summary());
         d.setRequester(req.requester());
         d.setAreaName(req.areaName());
         d.setAreaCode(req.areaCode());
@@ -594,10 +605,10 @@ public class DemandService {
         syncSuppliers(d, req.supplierIds());
         d.setDomain(req.domainId() == null ? null : lookups.findById(req.domainId()));
         d.setImpactedSystem(req.impactedSystem());
-        d.setInitialPriority(req.initialPriority() == null ? null : norm(req.initialPriority()));
-        d.setEstimatedEffort(req.estimatedEffort() == null ? null : norm(req.estimatedEffort()));
-        d.setExpectedImpact(req.expectedImpact());
-        d.setExpectedBenefit(req.expectedBenefit());
+        d.setCurrentEvidence(req.currentEvidence());
+        d.setProblemStatement(req.problemStatement());
+        d.setDesiredOutcome(req.desiredOutcome());
+        d.setProposedResponse(req.proposedResponse());
         d.setUrgency(req.urgency() == null ? null : norm(req.urgency()));
         d.setEstimatedBudget(req.estimatedBudget());
         d.setDesiredDate(req.desiredDate());
@@ -623,8 +634,6 @@ public class DemandService {
             throw new BadRequestException("typeId é obrigatório");
         }
         validateLookupOrEnum("DEMAND_ORIGIN", d.getOrigin(), Set.of("MANUAL", "EASYVISTA"));
-        validateLookupOrEnum("PRIORITY", d.getInitialPriority(), PRIORITY_CODES);
-        validateLookupOrEnum("ESTIMATED_EFFORT", d.getEstimatedEffort(), EFFORT_CODES);
         validateLookupOrEnum("URGENCY", d.getUrgency(), PRIORITY_CODES);
     }
 
@@ -655,18 +664,25 @@ public class DemandService {
         String domainCode = d.getDomain() != null ? d.getDomain().getCode() : null;
         LookupValueSummary typeData = mapLookupValue(d.getType());
         LookupValueSummary domainData = mapLookupValue(d.getDomain());
-        CurrentCycleSummary currentCycle = planningCycleService.getCurrentPlanningCycle(d.getId())
-                .map(this::mapCurrentCycle).orElse(null);
+        Optional<DemandPlanningCycle> currentPlanningCycle = planningCycleService.getCurrentPlanningCycle(d.getId());
+        DemandPlanningCycleDtos.Response currentCycle = currentPlanningCycle.map(this::mapCycle).orElse(null);
+        StrategicPillarSummary strategicPillar = currentPlanningCycle.map(DemandPlanningCycle::getStrategicPillar)
+                .map(this::mapStrategicPillar).orElse(null);
+        StrategicElementSummary strategicElement = currentPlanningCycle.map(DemandPlanningCycle::getStrategicElement)
+                .map(this::mapStrategicElement).orElse(null);
+        StrategicObjectiveSummary strategicObjective = currentPlanningCycle.map(DemandPlanningCycle::getStrategicObjective)
+                .map(this::mapStrategicObjective).orElse(null);
         List<SupplierSummary> supplierSummaries = d.getSuppliers().stream()
                 .sorted(Comparator.comparing(Supplier::getName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
                 .map(this::mapSupplier)
                 .toList();
-        return new DemandResponse(d.getId(), d.getCode(), d.getTitle(), d.getDescription(), d.getRequester(), d.getAreaName(),
+        List<DemandSuccessCriterionResponse> successCriteriaResponses = successCriteria.list(d.getId());
+        return new DemandResponse(d.getId(), d.getCode(), d.getTitle(), strategicPillar, strategicElement,
+                strategicObjective, d.getSummary(), d.getRequester(), d.getAreaName(),
             d.getAreaCode(), d.getDirectionName(), d.getDirectionCode(), d.getDirectionParticipationType(), d.getSponsor(), d.getTypeId(), typeCode, d.getOrigin(), d.getEasyVistaRef(),
                 d.getDomainId(), domainCode, d.getImpactedSystem(),
-                d.getInitialPriority(), d.getEstimatedEffort(),
-                d.getExpectedImpact(),
-                d.getExpectedBenefit(), d.getUrgency(), d.getEstimatedBudget(), d.getDesiredDate(), d.getNotes(),
+                d.getCurrentEvidence(), d.getProblemStatement(),
+                d.getDesiredOutcome(), d.getProposedResponse(), d.getUrgency(), d.getEstimatedBudget(), d.getDesiredDate(), d.getNotes(),
                 d.getRisksIdentified(),
                 d.getDependenciesIdentified(), d.getDirectionsCount(), d.getProfilesCount(), d.getTotalResources(),
                 d.getDependenciesCount(), d.getComplexityScore(), d.getComplexity(), d.getEstimatedDurationMonths(),
@@ -674,13 +690,7 @@ public class DemandService {
                 d.getCreatedAt(), d.getCreatedBy(), d.getUpdatedAt(), d.getUpdatedBy(),
                 d.getVersion(), typeData, domainData, currentCycle,
                 att, participatingDirs, profileRequirementResponses,
-                supplierSummaries);
-    }
-
-    private CurrentCycleSummary mapCurrentCycle(DemandPlanningCycle c) {
-        return new CurrentCycleSummary(c.getId(), mapStrategicPlan(c.getStrategicPlan()),
-                mapOperationalPlan(c.getOperationalPlan()), c.getStatus(), c.getScoreTotal(), c.getPortfolioRank(),
-                c.getCommitteeDecision(), c.isCarriedOver());
+                supplierSummaries, successCriteriaResponses);
     }
 
     private SupplierSummary mapSupplier(Supplier supplier) {
@@ -852,14 +862,14 @@ public class DemandService {
 
     private ScoreRelevantState scoreRelevantState(Demand demand) {
         return new ScoreRelevantState(
-                demand.getDescription(),
+                demand.getSummary(),
                 demand.getTypeId(),
                 demand.getDomainId(),
                 demand.getImpactedSystem(),
-                demand.getInitialPriority(),
-                demand.getEstimatedEffort(),
-                demand.getExpectedImpact(),
-                demand.getExpectedBenefit(),
+                demand.getCurrentEvidence(),
+                demand.getProblemStatement(),
+                demand.getDesiredOutcome(),
+                demand.getProposedResponse(),
                 demand.getUrgency(),
                 normalizedDecimal(demand.getEstimatedBudget()),
                 demand.getDesiredDate(),
@@ -908,14 +918,14 @@ public class DemandService {
     }
 
     private record ScoreRelevantState(
-            String description,
+            String summary,
             UUID typeId,
             UUID domainId,
             String impactedSystem,
-            String initialPriority,
-            String estimatedEffort,
-            String expectedImpact,
-            String expectedBenefit,
+            String currentEvidence,
+            String problemStatement,
+            String desiredOutcome,
+            String proposedResponse,
             String urgency,
             BigDecimal estimatedBudget,
             LocalDate desiredDate,
@@ -926,7 +936,10 @@ public class DemandService {
     private Create mergePatch(Demand d, Patch p) {
         return new Create(
                 p.title() != null ? p.title() : d.getTitle(),
-                p.description() != null ? p.description() : d.getDescription(),
+                null,
+                null,
+                null,
+                p.summary() != null ? p.summary() : d.getSummary(),
                 p.requester() != null ? p.requester() : d.getRequester(),
                 p.areaName() != null ? p.areaName() : d.getAreaName(),
                 p.areaCode() != null ? p.areaCode() : d.getAreaCode(),
@@ -940,10 +953,10 @@ public class DemandService {
                 p.supplierIds(),
                 p.domainId() != null ? p.domainId() : d.getDomainId(),
                 p.impactedSystem() != null ? p.impactedSystem() : d.getImpactedSystem(),
-                p.initialPriority() != null ? p.initialPriority() : d.getInitialPriority(),
-                p.estimatedEffort() != null ? p.estimatedEffort() : d.getEstimatedEffort(),
-                p.expectedImpact() != null ? p.expectedImpact() : d.getExpectedImpact(),
-                p.expectedBenefit() != null ? p.expectedBenefit() : d.getExpectedBenefit(),
+                p.currentEvidence() != null ? p.currentEvidence() : d.getCurrentEvidence(),
+                p.problemStatement() != null ? p.problemStatement() : d.getProblemStatement(),
+                p.desiredOutcome() != null ? p.desiredOutcome() : d.getDesiredOutcome(),
+                p.proposedResponse() != null ? p.proposedResponse() : d.getProposedResponse(),
                 p.urgency() != null ? p.urgency() : d.getUrgency(),
                 p.estimatedBudget() != null ? p.estimatedBudget() : d.getEstimatedBudget(),
                 p.desiredDate() != null ? p.desiredDate() : d.getDesiredDate(),
@@ -953,27 +966,17 @@ public class DemandService {
                 p.dependenciesCount() != null ? p.dependenciesCount() : d.getDependenciesCount(),
                 null,
                 p.participatingDirections(),
-                p.profileRequirements());
+                p.profileRequirements(),
+                p.successCriteria());
     }
 
     private Create toCreate(Update u) {
-        return new Create(u.title(), u.description(), u.requester(), u.areaName(), u.areaCode(), u.directionName(), u.directionCode(), u.directionParticipationType(), u.sponsor(), u.typeId(),
-                u.origin(), u.easyVistaRef(), u.supplierIds(), u.domainId(), u.impactedSystem(), u.initialPriority(),
-                u.estimatedEffort(), u.expectedImpact(), u.expectedBenefit(), u.urgency(), u.estimatedBudget(),
+        return new Create(u.title(), null, null, null, u.summary(), u.requester(), u.areaName(), u.areaCode(), u.directionName(), u.directionCode(), u.directionParticipationType(), u.sponsor(), u.typeId(),
+                u.origin(), u.easyVistaRef(), u.supplierIds(), u.domainId(), u.impactedSystem(), u.currentEvidence(),
+                u.problemStatement(), u.desiredOutcome(), u.proposedResponse(), u.urgency(), u.estimatedBudget(),
                 u.desiredDate(), u.notes(), u.risksIdentified(),
                 u.dependenciesIdentified(), u.dependenciesCount(),
-                null, u.participatingDirections(), u.profileRequirements());
-    }
-
-    private Priority mapPriority(String value) {
-        if (value == null)
-            return Priority.MEDIUM;
-        return switch (norm(value)) {
-            case "LOW" -> Priority.LOW;
-            case "HIGH" -> Priority.HIGH;
-            case "CRITICAL" -> Priority.CRITICAL;
-            default -> Priority.MEDIUM;
-        };
+                null, u.participatingDirections(), u.profileRequirements(), u.successCriteria());
     }
 
     private void validateDates(LocalDate start, LocalDate end) {

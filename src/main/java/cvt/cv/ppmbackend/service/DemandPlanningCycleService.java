@@ -15,6 +15,7 @@ import cvt.cv.ppmbackend.exception.ResourceNotFoundException;
 import cvt.cv.ppmbackend.repository.DemandPlanningCycleRepository;
 import cvt.cv.ppmbackend.repository.OperationalPlanRepository;
 import cvt.cv.ppmbackend.repository.ProgramRepository;
+import cvt.cv.ppmbackend.repository.StrategicElementRepository;
 import cvt.cv.ppmbackend.repository.StrategicObjectiveRepository;
 import cvt.cv.ppmbackend.repository.StrategicPillarRepository;
 import org.springframework.http.HttpStatus;
@@ -36,14 +37,14 @@ import static cvt.cv.ppmbackend.enums.DemandPlanningStatus.*;
 public class DemandPlanningCycleService {
     private static final Map<DemandPlanningStatus, Set<DemandPlanningStatus>> TRANSITIONS = new HashMap<>();
     static {
-        TRANSITIONS.put(DRAFT, Set.of(UNDER_ANALYSIS, BACKLOG, CLOSED));
-        TRANSITIONS.put(UNDER_ANALYSIS, Set.of(PRIORITIZATION, BACKLOG, CLOSED));
-        TRANSITIONS.put(PRIORITIZATION, Set.of(READY_FOR_COMMITTEE, BACKLOG, CLOSED, UNDER_ANALYSIS));
-        TRANSITIONS.put(READY_FOR_COMMITTEE,
-                Set.of(APPROVED, CONDITIONALLY_APPROVED, BACKLOG, UNDER_ANALYSIS, PRIORITIZATION, CLOSED));
+        TRANSITIONS.put(DRAFT, Set.of(IN_ANALYSIS, BACKLOG, CLOSED));
+        TRANSITIONS.put(IN_ANALYSIS, Set.of(IN_PRIORITIZATION, BACKLOG, CLOSED));
+        TRANSITIONS.put(IN_PRIORITIZATION, Set.of(AWAITING_COMMITTEE, BACKLOG, CLOSED, IN_ANALYSIS));
+        TRANSITIONS.put(AWAITING_COMMITTEE,
+                Set.of(APPROVED, CONDITIONALLY_APPROVED, BACKLOG, IN_ANALYSIS, IN_PRIORITIZATION, CLOSED));
         TRANSITIONS.put(APPROVED, Set.of(CONVERTED_TO_PROJECT, CONVERTED_TO_PROGRAM, CLOSED));
         TRANSITIONS.put(CONDITIONALLY_APPROVED, Set.of(CONVERTED_TO_PROJECT, CONVERTED_TO_PROGRAM, APPROVED, CLOSED));
-        TRANSITIONS.put(BACKLOG, Set.of(UNDER_ANALYSIS, CLOSED));
+        TRANSITIONS.put(BACKLOG, Set.of(IN_ANALYSIS, CLOSED));
         TRANSITIONS.put(CONVERTED_TO_PROJECT, Set.of(CLOSED));
         TRANSITIONS.put(CONVERTED_TO_PROGRAM, Set.of(CLOSED));
         TRANSITIONS.put(CLOSED, Set.of());
@@ -56,29 +57,30 @@ public class DemandPlanningCycleService {
     private final StrategicPlanService strategicPlans;
     private final OperationalPlanRepository operationalPlans;
     private final StrategicPillarRepository strategicPillars;
+    private final StrategicElementRepository strategicElements;
     private final StrategicObjectiveRepository strategicObjectives;
     private final ProgramRepository programs;
-    private final DemandPreScoreService preScoreService;
     private final DemandScoreLifecycleService scoreLifecycle;
     private final DemandHistoryService historyService;
 
     public DemandPlanningCycleService(DemandPlanningCycleRepository cycles, StrategicPlanService strategicPlans,
             OperationalPlanRepository operationalPlans, StrategicPillarRepository strategicPillars,
-            StrategicObjectiveRepository strategicObjectives, ProgramRepository programs,
-            DemandPreScoreService preScoreService, DemandScoreLifecycleService scoreLifecycle,
-            DemandHistoryService historyService) {
+            StrategicElementRepository strategicElements, StrategicObjectiveRepository strategicObjectives,
+            ProgramRepository programs,
+            DemandScoreLifecycleService scoreLifecycle, DemandHistoryService historyService) {
         this.cycles = cycles;
         this.strategicPlans = strategicPlans;
         this.operationalPlans = operationalPlans;
         this.strategicPillars = strategicPillars;
+        this.strategicElements = strategicElements;
         this.strategicObjectives = strategicObjectives;
         this.programs = programs;
-        this.preScoreService = preScoreService;
         this.scoreLifecycle = scoreLifecycle;
         this.historyService = historyService;
     }
 
-    public DemandPlanningCycle createInitialCycle(Demand demand, String actorId) {
+    public DemandPlanningCycle createInitialCycle(Demand demand, UUID strategicPillarId, UUID strategicElementId,
+            UUID strategicObjectiveId, String actorId) {
         StrategicPlan plan = strategicPlans.findCurrentPlanningPlan()
                 .orElseThrow(() -> new BadRequestException(
                         "Não existe nenhum Plano Estratégico em processo de planeamento para associar a nova Demanda."));
@@ -92,7 +94,7 @@ public class DemandPlanningCycleService {
         cycle.setCarriedOver(false);
         cycle.setPreviousCycle(null);
         cycle.setCycleEntryAt(Instant.now());
-        preScoreService.calculate(demand, cycle);
+        applyStrategicFraming(cycle, strategicPillarId, strategicElementId, strategicObjectiveId);
         DemandPlanningCycle saved = cycles.save(cycle);
         historyService.log(demand, "PLANNING_CYCLE_CREATED", null, DRAFT.name(),
                 "Demanda incluída no ciclo de planeamento " + plan.getName(), actorId, actorId,
@@ -111,13 +113,12 @@ public class DemandPlanningCycleService {
         cycle.setDemand(demand);
         cycle.setStrategicPlan(newPlan);
         cycle.setOperationalPlan(operationalPlan);
-        cycle.setStatus(UNDER_ANALYSIS);
+        cycle.setStatus(IN_ANALYSIS);
         cycle.setCarriedOver(true);
         cycle.setPreviousCycle(previousCycle);
         cycle.setCycleEntryAt(Instant.now());
-        preScoreService.calculate(demand, cycle);
         DemandPlanningCycle saved = cycles.save(cycle);
-        historyService.log(demand, "PLANNING_CYCLE_CARRIED_OVER", previousCycle.getStatus().name(), UNDER_ANALYSIS.name(),
+        historyService.log(demand, "PLANNING_CYCLE_CARRIED_OVER", previousCycle.getStatus().name(), IN_ANALYSIS.name(),
                 "Demanda transitada para o novo ciclo de planeamento " + newPlan.getName(), actorId, actorId,
                 Map.of("strategicPlanId", newPlan.getId().toString(), "previousCycleId", previousCycle.getId().toString()));
         return saved;
@@ -158,12 +159,12 @@ public class DemandPlanningCycleService {
         if ((to == BACKLOG || to == CLOSED) && (reason == null || reason.isBlank())) {
             throw new BadRequestException("reason é obrigatório para status " + to);
         }
-        if (to == READY_FOR_COMMITTEE) {
+        if (to == AWAITING_COMMITTEE) {
             validateCommitteeReadiness(cycle);
         }
         scoreLifecycle.applyStatusTransition(cycle, from, to, reason);
         cycle.setStatus(to);
-        if (to != READY_FOR_COMMITTEE) {
+        if (to != AWAITING_COMMITTEE) {
             cycle.setInStrategicCommittee(false);
         }
         DemandPlanningCycle saved = cycles.save(cycle);
@@ -173,25 +174,25 @@ public class DemandPlanningCycleService {
     }
 
     public DemandPlanningCycle sendToStrategicCommittee(DemandPlanningCycle cycle, String reason, String actorId) {
-        if (cycle.getStatus() != READY_FOR_COMMITTEE) {
-            cycle = transitionStatus(cycle, READY_FOR_COMMITTEE, reason, actorId);
+        if (cycle.getStatus() != AWAITING_COMMITTEE) {
+            cycle = transitionStatus(cycle, AWAITING_COMMITTEE, reason, actorId);
         }
         cycle.setInStrategicCommittee(true);
         cycle.setStrategicCommitteeAt(Instant.now());
         DemandPlanningCycle saved = cycles.save(cycle);
-        historyService.log(cycle.getDemand(), "SENT_TO_STRATEGIC_COMMITTEE", READY_FOR_COMMITTEE.name(),
-                READY_FOR_COMMITTEE.name(), reason, actorId, actorId, Map.of());
+        historyService.log(cycle.getDemand(), "SENT_TO_STRATEGIC_COMMITTEE", AWAITING_COMMITTEE.name(),
+                AWAITING_COMMITTEE.name(), reason, actorId, actorId, Map.of());
         return saved;
     }
 
     public DemandPlanningCycle assignCommittee(DemandPlanningCycle cycle, Committee committee, String actorId) {
         DemandPlanningStatus from = cycle.getStatus();
         cycle.setResponsibleCommittee(committee);
-        scoreLifecycle.applyStatusTransition(cycle, from, PRIORITIZATION, "Comité responsável atribuído");
-        cycle.setStatus(PRIORITIZATION);
+        scoreLifecycle.applyStatusTransition(cycle, from, IN_PRIORITIZATION, "Comité responsável atribuído");
+        cycle.setStatus(IN_PRIORITIZATION);
         cycle.setInStrategicCommittee(false);
         DemandPlanningCycle saved = cycles.save(cycle);
-        historyService.log(cycle.getDemand(), "COMMITTEE_ASSIGNED", from.name(), PRIORITIZATION.name(),
+        historyService.log(cycle.getDemand(), "COMMITTEE_ASSIGNED", from.name(), IN_PRIORITIZATION.name(),
                 "Comité responsável atribuído e status alterado para Priorização", actorId, actorId,
                 Map.of("committeeId", committee.getId().toString()));
         return saved;
@@ -216,7 +217,7 @@ public class DemandPlanningCycleService {
                 cycle.setApprovalType("CONDITIONAL");
             }
             case "REVISION_REQUESTED" -> {
-                transitionStatus(cycle, UNDER_ANALYSIS, justification, actorId);
+                transitionStatus(cycle, IN_ANALYSIS, justification, actorId);
                 cycle.setCommitteeDecision("REVISION_REQUESTED");
                 cycle.setRejectionReason(justification);
             }
@@ -278,15 +279,9 @@ public class DemandPlanningCycleService {
     }
 
     public DemandPlanningCycle updateEnrichment(DemandPlanningCycle cycle, UUID strategicPillarId,
-            UUID strategicObjectiveId, UUID programId, String capacityStatus, String riskStatus, String actorId) {
-        if (strategicPillarId != null) {
-            cycle.setStrategicPillar(strategicPillars.findById(strategicPillarId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Pilar estratégico não encontrado: " + strategicPillarId)));
-        }
-        if (strategicObjectiveId != null) {
-            cycle.setStrategicObjective(strategicObjectives.findById(strategicObjectiveId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Objetivo estratégico não encontrado: " + strategicObjectiveId)));
-        }
+            UUID strategicElementId, UUID strategicObjectiveId, UUID programId, String capacityStatus,
+            String riskStatus, String actorId) {
+        applyStrategicFraming(cycle, strategicPillarId, strategicElementId, strategicObjectiveId);
         if (programId != null) {
             cycle.setProgram(programs.findById(programId)
                     .orElseThrow(() -> new ResourceNotFoundException("Programa não encontrado: " + programId)));
@@ -311,6 +306,32 @@ public class DemandPlanningCycleService {
             if (!keep.contains(cycle.getStatus())) {
                 transitionStatus(cycle, BACKLOG, "Ciclo de planeamento encerrado", actorId);
             }
+        }
+    }
+
+    private void applyStrategicFraming(DemandPlanningCycle cycle, UUID strategicPillarId, UUID strategicElementId,
+            UUID strategicObjectiveId) {
+        if (strategicPillarId != null) {
+            cycle.setStrategicPillar(strategicPillars.findById(strategicPillarId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Pilar estratégico não encontrado: " + strategicPillarId)));
+        }
+        if (strategicElementId != null) {
+            cycle.setStrategicElement(strategicElements.findById(strategicElementId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Elemento estratégico não encontrado: " + strategicElementId)));
+        }
+        if (strategicObjectiveId != null) {
+            cycle.setStrategicObjective(strategicObjectives.findById(strategicObjectiveId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Objetivo estratégico não encontrado: " + strategicObjectiveId)));
+        }
+        if (cycle.getStrategicElement() != null && cycle.getStrategicPillar() != null
+                && !cycle.getStrategicElement().getStrategicPillar().getId().equals(cycle.getStrategicPillar().getId())) {
+            throw domain(HttpStatus.UNPROCESSABLE_ENTITY, "ELEMENT_DOES_NOT_BELONG_TO_PILLAR",
+                    "O elemento estratégico não pertence ao pilar informado");
+        }
+        if (cycle.getStrategicObjective() != null && cycle.getStrategicElement() != null
+                && !cycle.getStrategicObjective().getStrategicElement().getId().equals(cycle.getStrategicElement().getId())) {
+            throw domain(HttpStatus.UNPROCESSABLE_ENTITY, "OBJECTIVE_DOES_NOT_BELONG_TO_ELEMENT",
+                    "O objetivo estratégico não pertence ao elemento informado");
         }
     }
 

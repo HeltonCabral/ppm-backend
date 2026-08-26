@@ -28,6 +28,7 @@ public class StrategicElementService
         e.setName(r.name());
         e.setDescription(r.description());
         e.setIcon(r.icon());
+        e.setDisplayOrder(r.displayOrder());
         e.setStrategicPillar(pillars.findById(r.strategicPillarId()));
         return e;
     }

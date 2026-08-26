@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import cvt.cv.ppmbackend.dto.DemandDtos.CommitteeSummary;
 import cvt.cv.ppmbackend.dto.DemandDtos.OperationalPlanSummary;
 import cvt.cv.ppmbackend.dto.DemandDtos.ProgramSummary;
+import cvt.cv.ppmbackend.dto.DemandDtos.StrategicElementSummary;
 import cvt.cv.ppmbackend.dto.DemandDtos.StrategicObjectiveSummary;
 import cvt.cv.ppmbackend.dto.DemandDtos.StrategicPillarSummary;
 import cvt.cv.ppmbackend.dto.DemandDtos.StrategicPlanSummary;
@@ -24,21 +25,11 @@ public final class DemandPlanningCycleDtos {
 
     public record EnrichmentRequest(
             UUID strategicPillarId,
+            UUID strategicElementId,
             UUID strategicObjectiveId,
             UUID programId,
             @Size(max = 40) String capacityStatus,
             @Size(max = 40) String riskStatus) {
-    }
-
-    public record CurrentCycleSummary(
-            UUID id,
-            StrategicPlanSummary strategicPlan,
-            OperationalPlanSummary operationalPlan,
-            DemandPlanningStatus status,
-            BigDecimal scoreTotal,
-            Integer portfolioRank,
-            String committeeDecision,
-            boolean carriedOver) {
     }
 
     public record Response(
@@ -47,14 +38,13 @@ public final class DemandPlanningCycleDtos {
             StrategicPlanSummary strategicPlan,
             OperationalPlanSummary operationalPlan,
             StrategicPillarSummary strategicPillar,
+            StrategicElementSummary strategicElement,
             StrategicObjectiveSummary strategicObjective,
             ProgramSummary program,
             DemandPlanningStatus status,
             CommitteeSummary responsibleCommittee,
             boolean inStrategicCommittee,
             Instant strategicCommitteeAt,
-            BigDecimal preScore,
-            String preScoreClassification,
             BigDecimal scoreTotal,
             String scoreStatus,
             Instant scoreCalculatedAt,

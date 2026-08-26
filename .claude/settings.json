@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8082/api/strategic-pillars --max-time 5)",
+      "Bash(curl -s http://localhost:8082/api/strategic-pillars --max-time 5)",
+      "Bash(curl -s http://localhost:8082/api/strategic-pillars)",
+      "Bash(tail -20 /tmp/app.log)",
+      "Read(//tmp/**)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8082/api/strategic-plans/planning --max-time 5)",
+      "Bash(curl -s http://localhost:8082/api/strategic-plans/planning --max-time 5)",
+      "Bash(curl -s -X POST http://localhost:8082/api/demands -H 'Content-Type: application/json; charset=utf-8' --data-binary '@C:\\\\Users\\\\cvt00983\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-cvt00983-Documents-Docs-CVT-Portifolio-ppmbackend\\\\77291ca2-897f-417f-afd8-8cb2f657a8a3\\\\scratchpad\\\\seed/demand_test.json')",
+      "Bash(curl -s \"http://localhost:8082/api/demands/7b530790-5b0f-40d8-86f2-fb1e07754904/planning-cycles/b56e81b2-8b7c-4b56-b4bb-53e01884b8dd\" --max-time 5)"
+    ]
+  }
+}

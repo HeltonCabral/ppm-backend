@@ -19,6 +19,8 @@ public class StrategicElement extends BaseEntity {
     private String description;
     @Column(length = 100)
     private String icon;
+    @Column(name = "display_order")
+    private Integer displayOrder;
     @ManyToOne(fetch = FetchType.EAGER, optional = false)
     @JoinColumn(name = "strategic_pillar_id", nullable = false)
     private StrategicPillar strategicPillar;

@@ -37,7 +37,7 @@ public class DemandScoringService {
     private static final BigDecimal ZERO = BigDecimal.ZERO;
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
     private static final Set<DemandPlanningStatus> AUTO_STATUS_SCOPE = Set.of(
-            UNDER_ANALYSIS, PRIORITIZATION, READY_FOR_COMMITTEE);
+            IN_ANALYSIS, IN_PRIORITIZATION, AWAITING_COMMITTEE);
     private final DemandPlanningCycleRepository cycles;
     private final DemandScoringRepository scoring;
     private final ScoringCriterionService criteria;
@@ -316,8 +316,8 @@ public class DemandScoringService {
         if (!AUTO_STATUS_SCOPE.contains(cycle.getStatus())) {
             return;
         }
-        if (cycle.getStatus() == UNDER_ANALYSIS) {
-            planningCycleService.transitionStatus(cycle, PRIORITIZATION, "Scoring atualizado", actorId);
+        if (cycle.getStatus() == IN_ANALYSIS) {
+            planningCycleService.transitionStatus(cycle, IN_PRIORITIZATION, "Scoring atualizado", actorId);
         }
     }
 

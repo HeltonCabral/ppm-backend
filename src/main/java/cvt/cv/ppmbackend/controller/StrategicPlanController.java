@@ -43,6 +43,11 @@ public class StrategicPlanController extends AbstractCrudController<StrategicPla
         return plans.overview();
     }
 
+    @GetMapping("/planning")
+    public StrategicPlan planning() {
+        return plans.getCurrentPlanningPlan();
+    }
+
     @PostMapping("/start-planning")
     public ResponseEntity<StrategicPlan> startPlanning(
             @RequestHeader(value = "X-User-Id", defaultValue = "system") String actorId,

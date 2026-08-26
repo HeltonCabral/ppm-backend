@@ -20,7 +20,6 @@ public final class CommitteeDecisionDtos {
             BigDecimal scoreMax,
             UUID committeeId,
             @Size(max = 60) String directionCode,
-            @Size(max = 40) String priority,
             @Size(max = 40) String urgency,
             @Size(max = 40) String riskLevel) {
     }

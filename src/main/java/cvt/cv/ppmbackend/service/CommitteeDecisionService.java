@@ -33,7 +33,7 @@ public class CommitteeDecisionService {
             "APPROVED", "CONDITIONALLY_APPROVE", "REVISION_REQUESTED", "BACKLOG");
 
     private static final Set<DemandPlanningStatus> ELIGIBLE_STATUSES = Set.of(
-            PRIORITIZATION, READY_FOR_COMMITTEE);
+            IN_PRIORITIZATION, AWAITING_COMMITTEE);
 
     private final DemandPlanningCycleRepository planningCycles;
     private final DemandPlanningCycleService planningCycleService;
@@ -98,14 +98,9 @@ public class CommitteeDecisionService {
                 .distinct()
                 .count();
         int criticalDependencies = blockingDependencies.size();
-        int highPriorityWithCapacityRestriction = (int) scenarioCycles.stream()
-                .filter(this::isHighPriority)
-                .filter(this::hasCapacityRestriction)
-                .count();
 
         List<AttentionPoint> attentionPoints = attentionPoints(
-                capacity, blockedDemands, criticalDependencies,
-                highPriorityWithCapacityRestriction, openConditions);
+                capacity, blockedDemands, criticalDependencies, openConditions);
         CapacitySummary capacitySummary = new CapacitySummary(
                 capacity.available(), capacity.required(), capacity.coveragePercentage());
 
@@ -201,11 +196,6 @@ public class CommitteeDecisionService {
                             filters.directionCode().trim().toUpperCase(Locale.ROOT)));
         }
 
-        if (filters.priority() != null) {
-            spec = spec.and((r, q, cb) ->
-                    cb.equal(cb.upper(r.get("demand").get("initialPriority")), norm(filters.priority())));
-        }
-
         if (filters.urgency() != null) {
             spec = spec.and((r, q, cb) ->
                     cb.equal(cb.upper(r.get("demand").get("urgency")), norm(filters.urgency())));
@@ -278,16 +268,6 @@ public class CommitteeDecisionService {
         return ELIGIBLE_STATUSES.contains(cycle.getStatus()) && !isDeliberated(cycle);
     }
 
-    private boolean isHighPriority(DemandPlanningCycle cycle) {
-        String priority = norm(cycle.getDemand().getInitialPriority());
-        return "HIGH".equals(priority) || "CRITICAL".equals(priority);
-    }
-
-    private boolean hasCapacityRestriction(DemandPlanningCycle cycle) {
-        String capacityStatus = norm(cycle.getCapacityStatus());
-        return "LIMITED".equals(capacityStatus) || "UNAVAILABLE".equals(capacityStatus);
-    }
-
     private CapacityCalculation capacity(List<DemandProfileRequirement> requirements) {
         Map<UUID, BigDecimal> requiredByProfile = new HashMap<>();
         Map<UUID, Profile> profilesById = new HashMap<>();
@@ -326,7 +306,6 @@ public class CommitteeDecisionService {
             CapacityCalculation capacity,
             int blockedDemands,
             int criticalDependencies,
-            int highPriorityWithCapacityRestriction,
             int openConditions) {
         List<AttentionPoint> points = new ArrayList<>();
         if (capacity.deficitProfiles() > 0) {
@@ -341,13 +320,6 @@ public class CommitteeDecisionService {
                     blockedDemands + " demanda(s) possuem " + criticalDependencies
                             + " dependência(s) bloqueante(s)",
                     blockedDemands));
-        }
-        if (highPriorityWithCapacityRestriction > 0) {
-            points.add(new AttentionPoint(
-                    "HIGH_PRIORITY_CAPACITY", "WARNING",
-                    highPriorityWithCapacityRestriction
-                            + " demanda(s) de alta prioridade apresentam restrição de capacidade",
-                    highPriorityWithCapacityRestriction));
         }
         if (openConditions > 0) {
             points.add(new AttentionPoint(

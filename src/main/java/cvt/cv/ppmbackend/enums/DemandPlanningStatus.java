@@ -2,9 +2,9 @@ package cvt.cv.ppmbackend.enums;
 
 public enum DemandPlanningStatus {
     DRAFT,
-    UNDER_ANALYSIS,
-    PRIORITIZATION,
-    READY_FOR_COMMITTEE,
+    IN_ANALYSIS,
+    IN_PRIORITIZATION,
+    AWAITING_COMMITTEE,
     APPROVED,
     CONDITIONALLY_APPROVED,
     BACKLOG,

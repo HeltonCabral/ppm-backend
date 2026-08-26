@@ -42,6 +42,8 @@ public class ScoringCriterion extends BaseEntity {
     @Column(name = "order_index", nullable = false)
     private Integer orderIndex;
 
+    private String description;
+
     @Column(nullable = false)
     private Boolean active = true;
 }

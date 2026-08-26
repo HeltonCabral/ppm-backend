@@ -170,7 +170,7 @@ public class ProjectService {
         p.setExecutionRank(cycle.getPortfolioRank());
         p.setSourceDemandPortfolioRank(cycle.getPortfolioRank());
         if (p.getBudget() == null) p.setBudget(demand.getEstimatedBudget());
-        if (!hasText(p.getExpectedBenefits())) p.setExpectedBenefits(demand.getExpectedBenefit());
+        if (!hasText(p.getExpectedBenefits())) p.setExpectedBenefits(demand.getDesiredOutcome());
         if (p.getStrategicPlan() == null) p.setStrategicPlan(cycle.getStrategicPlan());
         if (p.getOperationalPlan() == null) p.setOperationalPlan(cycle.getOperationalPlan());
         if (p.getStrategicPillar() == null) p.setStrategicPillar(cycle.getStrategicPillar());

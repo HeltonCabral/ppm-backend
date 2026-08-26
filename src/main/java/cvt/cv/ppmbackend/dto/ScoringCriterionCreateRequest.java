@@ -13,5 +13,6 @@ public record ScoringCriterionCreateRequest(
         @NotNull BigDecimal minScore,
         @NotNull BigDecimal maxScore,
         @NotNull Integer orderIndex,
+        String description,
         Boolean active) {
 }

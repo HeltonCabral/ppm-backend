@@ -32,10 +32,10 @@ public class ComplexityConfigurationInitializer implements ApplicationRunner {
         criterion(ComplexityCriterion.TOTAL_RESOURCES, 1, 2, 3, 5, 6, 10, 11, null);
         criterion(ComplexityCriterion.DEPENDENCIES_COUNT, 0, 0, 1, 1, 2, 3, 4, null);
 
-        level(DemandComplexity.LOW, "1.00", "1.49", 1);
-        level(DemandComplexity.MEDIUM, "1.50", "2.49", 3);
-        level(DemandComplexity.HIGH, "2.50", "3.49", 6);
-        level(DemandComplexity.VERY_HIGH, "3.50", "4.00", 12);
+        level(DemandComplexity.LOW, "1.00", "1.99", 1);
+        level(DemandComplexity.MEDIUM, "2.00", "2.99", 3);
+        level(DemandComplexity.HIGH, "3.00", "3.99", 6);
+        level(DemandComplexity.VERY_HIGH, "4.00", "5.00", 12);
     }
 
     private void criterion(ComplexityCriterion criterion, int lowMin, int lowMax, int mediumMin, int mediumMax,

@@ -1,7 +1,7 @@
 package cvt.cv.ppmbackend.dto;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import cvt.cv.ppmbackend.dto.DemandPlanningCycleDtos.CurrentCycleSummary;
+import cvt.cv.ppmbackend.dto.DemandPlanningCycleDtos;
 import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import cvt.cv.ppmbackend.enums.DirectionParticipationType;
 import cvt.cv.ppmbackend.enums.DemandComplexity;
@@ -34,9 +34,22 @@ public final class DemandDtos {
                         @Size(max = 150) String contentType) {
         }
 
+        public record DemandSuccessCriterionInput(
+                        @NotBlank @Size(max = 1000) String description) {
+        }
+
+        public record DemandSuccessCriterionResponse(
+                        UUID id,
+                        String description,
+                        Integer displayOrder) {
+        }
+
         public record Create(
                         @NotBlank @Size(max = 250) String title,
-                        @Size(max = 10000) String description,
+                        UUID strategicPillarId,
+                        UUID strategicElementId,
+                        UUID strategicObjectiveId,
+                        @Size(max = 1000) String summary,
                         @Size(max = 150) String requester,
                         @Size(max = 120) String areaName,
                         @Size(max = 60) String areaCode,
@@ -50,10 +63,10 @@ public final class DemandDtos {
                         Set<UUID> supplierIds,
                         UUID domainId,
                         @Size(max = 150) String impactedSystem,
-                        @Size(max = 40) String initialPriority,
-                        @Size(max = 40) String estimatedEffort,
-                        @Size(max = 10000) String expectedImpact,
-                        @Size(max = 10000) String expectedBenefit,
+                        @Size(max = 10000) String currentEvidence,
+                        @NotBlank @Size(max = 10000) String problemStatement,
+                        @NotBlank @Size(max = 10000) String desiredOutcome,
+                        @Size(max = 10000) String proposedResponse,
                         @Size(max = 40) String urgency,
                         @PositiveOrZero BigDecimal estimatedBudget,
                         LocalDate desiredDate,
@@ -63,12 +76,16 @@ public final class DemandDtos {
                         @PositiveOrZero Integer dependenciesCount,
                         @Valid List<AttachmentInput> attachments,
                         @Valid List<ParticipatingDirectionCreate> participatingDirections,
-                        @Valid List<DemandProfileRequirementInput> profileRequirements) {
+                        @Valid List<DemandProfileRequirementInput> profileRequirements,
+                        @Valid List<DemandSuccessCriterionInput> successCriteria) {
         }
 
         public record Update(
                         @NotBlank @Size(max = 250) String title,
-                        @Size(max = 10000) String description,
+                        UUID strategicPillarId,
+                        UUID strategicElementId,
+                        UUID strategicObjectiveId,
+                        @Size(max = 1000) String summary,
                         @Size(max = 150) String requester,
                         @Size(max = 120) String areaName,
                         @Size(max = 60) String areaCode,
@@ -82,10 +99,10 @@ public final class DemandDtos {
                         Set<UUID> supplierIds,
                         UUID domainId,
                         @Size(max = 150) String impactedSystem,
-                        @Size(max = 40) String initialPriority,
-                        @Size(max = 40) String estimatedEffort,
-                        @Size(max = 10000) String expectedImpact,
-                        @Size(max = 10000) String expectedBenefit,
+                        @Size(max = 10000) String currentEvidence,
+                        @NotBlank @Size(max = 10000) String problemStatement,
+                        @NotBlank @Size(max = 10000) String desiredOutcome,
+                        @Size(max = 10000) String proposedResponse,
                         @Size(max = 40) String urgency,
                         @PositiveOrZero BigDecimal estimatedBudget,
                         LocalDate desiredDate,
@@ -94,12 +111,16 @@ public final class DemandDtos {
                         @Size(max = 10000) String dependenciesIdentified,
                         @PositiveOrZero Integer dependenciesCount,
                         @Valid List<ParticipatingDirectionCreate> participatingDirections,
-                        @Valid List<DemandProfileRequirementInput> profileRequirements) {
+                        @Valid List<DemandProfileRequirementInput> profileRequirements,
+                        @Valid List<DemandSuccessCriterionInput> successCriteria) {
         }
 
         public record Patch(
                         @Size(max = 250) String title,
-                        @Size(max = 10000) String description,
+                        UUID strategicPillarId,
+                        UUID strategicElementId,
+                        UUID strategicObjectiveId,
+                        @Size(max = 1000) String summary,
                         @Size(max = 150) String requester,
                         @Size(max = 120) String areaName,
                         @Size(max = 60) String areaCode,
@@ -113,10 +134,10 @@ public final class DemandDtos {
                         Set<UUID> supplierIds,
                         UUID domainId,
                         @Size(max = 150) String impactedSystem,
-                        @Size(max = 40) String initialPriority,
-                        @Size(max = 40) String estimatedEffort,
-                        @Size(max = 10000) String expectedImpact,
-                        @Size(max = 10000) String expectedBenefit,
+                        @Size(max = 10000) String currentEvidence,
+                        @Size(max = 10000) String problemStatement,
+                        @Size(max = 10000) String desiredOutcome,
+                        @Size(max = 10000) String proposedResponse,
                         @Size(max = 40) String urgency,
                         @PositiveOrZero BigDecimal estimatedBudget,
                         LocalDate desiredDate,
@@ -125,7 +146,8 @@ public final class DemandDtos {
                         @Size(max = 10000) String dependenciesIdentified,
                         @PositiveOrZero Integer dependenciesCount,
                         @Valid List<ParticipatingDirectionCreate> participatingDirections,
-                        @Valid List<DemandProfileRequirementInput> profileRequirements) {
+                        @Valid List<DemandProfileRequirementInput> profileRequirements,
+                        @Valid List<DemandSuccessCriterionInput> successCriteria) {
         }
 
         public record AssignCommitteeRequest(@NotNull UUID committeeId) {
@@ -195,6 +217,9 @@ public final class DemandDtos {
         public record StrategicPillarSummary(UUID id, String name, String description) {
         }
 
+        public record StrategicElementSummary(UUID id, String name, String description) {
+        }
+
         public record StrategicObjectiveSummary(UUID id, String name, Integer fiscalYear, Integer startYear,
                         Integer endYear,
                         String perspective) {
@@ -225,7 +250,10 @@ public final class DemandDtos {
                         UUID id,
                         String code,
                         String title,
-                        String description,
+                        StrategicPillarSummary strategicPillar,
+                        StrategicElementSummary strategicElement,
+                        StrategicObjectiveSummary strategicObjective,
+                        String summary,
                         String requester,
                         String areaName,
                         String areaCode,
@@ -240,10 +268,10 @@ public final class DemandDtos {
                         UUID domainId,
                         String domain,
                         String impactedSystem,
-                        String initialPriority,
-                        String estimatedEffort,
-                        String expectedImpact,
-                        String expectedBenefit,
+                        String currentEvidence,
+                        String problemStatement,
+                        String desiredOutcome,
+                        String proposedResponse,
                         String urgency,
                         BigDecimal estimatedBudget,
                         LocalDate desiredDate,
@@ -265,11 +293,12 @@ public final class DemandDtos {
                         Long version,
                         LookupValueSummary typeData,
                         LookupValueSummary domainData,
-                        CurrentCycleSummary currentPlanningCycle,
+                        DemandPlanningCycleDtos.Response currentPlanningCycle,
                         List<DemandAttachmentResponse> attachments,
                         List<ParticipatingDirectionResponse> participatingDirections,
                         List<DemandProfileRequirementResponse> profileRequirements,
-                        List<SupplierSummary> suppliers) {
+                        List<SupplierSummary> suppliers,
+                        List<DemandSuccessCriterionResponse> successCriteria) {
         }
 
         public record DemandHistoryResponse(

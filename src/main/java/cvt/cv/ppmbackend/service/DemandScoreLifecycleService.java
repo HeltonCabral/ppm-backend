@@ -24,11 +24,11 @@ public class DemandScoreLifecycleService {
     public static final String SCORE_INVALID = "Invalidado";
 
     private static final Set<DemandPlanningStatus> SCORING_ELIGIBLE_STATUSES = Set.of(
-            UNDER_ANALYSIS, PRIORITIZATION, READY_FOR_COMMITTEE);
+            IN_ANALYSIS, IN_PRIORITIZATION, AWAITING_COMMITTEE);
     private static final Map<DemandPlanningStatus, Integer> WORKFLOW_ORDER = Map.of(
-            UNDER_ANALYSIS, 0,
-            PRIORITIZATION, 1,
-            READY_FOR_COMMITTEE, 2);
+            IN_ANALYSIS, 0,
+            IN_PRIORITIZATION, 1,
+            AWAITING_COMMITTEE, 2);
 
     private final ObjectMapper objectMapper;
 

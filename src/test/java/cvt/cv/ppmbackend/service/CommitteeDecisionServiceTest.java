@@ -61,11 +61,9 @@ class CommitteeDecisionServiceTest {
         plan.setStatus(StrategicPlanStatus.CONDITIONALLY_APPROVED);
 
         DemandPlanningCycle approved = cycle(DemandPlanningStatus.APPROVED, "APPROVED", "100.00");
-        approved.getDemand().setInitialPriority("HIGH");
-        approved.setCapacityStatus("LIMITED");
         DemandPlanningCycle conditional = cycle(DemandPlanningStatus.CONDITIONALLY_APPROVED, "CONDITIONALLY_APPROVED", "50.00");
-        DemandPlanningCycle pending = cycle(DemandPlanningStatus.PRIORITIZATION, null, "25.00");
-        DemandPlanningCycle revision = cycle(DemandPlanningStatus.UNDER_ANALYSIS, "REVISION_REQUESTED", "10.00");
+        DemandPlanningCycle pending = cycle(DemandPlanningStatus.IN_PRIORITIZATION, null, "25.00");
+        DemandPlanningCycle revision = cycle(DemandPlanningStatus.IN_ANALYSIS, "REVISION_REQUESTED", "10.00");
 
         Profile profile = new Profile();
         profile.setId(UUID.randomUUID());
@@ -105,8 +103,7 @@ class CommitteeDecisionServiceTest {
         assertThat(result.overview().blockedDemands()).isEqualTo(1);
         assertThat(result.overview().criticalDependencies()).isEqualTo(1);
         assertThat(result.attentionPoints()).extracting("code")
-                .containsExactly("CAPACITY_DEFICIT", "BLOCKING_DEPENDENCIES",
-                        "HIGH_PRIORITY_CAPACITY", "OPEN_CONDITIONS");
+                .containsExactly("CAPACITY_DEFICIT", "BLOCKING_DEPENDENCIES", "OPEN_CONDITIONS");
     }
 
     private DemandPlanningCycle cycle(DemandPlanningStatus status, String committeeDecision, String budget) {

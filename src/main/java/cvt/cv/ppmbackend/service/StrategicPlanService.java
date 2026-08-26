@@ -14,7 +14,10 @@ import cvt.cv.ppmbackend.dto.StrategicPlanOverviewDtos.PlanningProgress;
 import cvt.cv.ppmbackend.entity.*;
 import cvt.cv.ppmbackend.enums.*;
 import cvt.cv.ppmbackend.exception.BadRequestException;
+import cvt.cv.ppmbackend.exception.DomainException;
+import cvt.cv.ppmbackend.exception.ResourceNotFoundException;
 import cvt.cv.ppmbackend.repository.*;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,8 +34,8 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
     private static final List<StrategicPlanStatus> PLANNING_STATUSES = List.of(
             StrategicPlanStatus.DRAFT, StrategicPlanStatus.CONDITIONALLY_APPROVED, StrategicPlanStatus.APPROVED);
     private static final List<DemandPlanningStatus> APPROVED_CYCLE_STATUSES = List.of(APPROVED, CONDITIONALLY_APPROVED);
-    private static final List<DemandPlanningStatus> STILL_PENDING_CYCLE_STATUSES = List.of(DRAFT, UNDER_ANALYSIS,
-            PRIORITIZATION, READY_FOR_COMMITTEE);
+    private static final List<DemandPlanningStatus> STILL_PENDING_CYCLE_STATUSES = List.of(DRAFT, IN_ANALYSIS,
+            IN_PRIORITIZATION, AWAITING_COMMITTEE);
 
     private final StrategicPlanRepository plans;
     private final DemandPlanningCycleRepository planningCycles;
@@ -83,7 +86,18 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
 
     @Transactional(readOnly = true)
     public Optional<StrategicPlan> findCurrentPlanningPlan() {
-        return plans.findFirstByStatusInAndDeletedAtIsNull(PLANNING_STATUSES);
+        List<StrategicPlan> planningPlans = plans.findByStatusInAndDeletedAtIsNull(PLANNING_STATUSES);
+        if (planningPlans.size() > 1) {
+            throw new DomainException(HttpStatus.CONFLICT, "MULTIPLE_PLANS_IN_PLANNING",
+                    "Existe mais de um Plano Estratégico em planeamento.", Map.of());
+        }
+        return planningPlans.stream().findFirst();
+    }
+
+    @Transactional(readOnly = true)
+    public StrategicPlan getCurrentPlanningPlan() {
+        return findCurrentPlanningPlan()
+                .orElseThrow(() -> new ResourceNotFoundException("Não existe nenhum Plano Estratégico em planeamento."));
     }
 
     @Transactional(readOnly = true)
@@ -430,7 +444,7 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
     private Program createProgramFromDemand(Demand demand, DemandPlanningCycle cycle) {
         Program program = new Program();
         program.setName(demand.getTitle());
-        program.setDescription(demand.getDescription());
+        program.setDescription(demand.getSummary());
         program.setStrategicPlan(cycle.getStrategicPlan());
         program.setOperationalPlan(cycle.getOperationalPlan());
         program.setStrategicPillar(cycle.getStrategicPillar());
@@ -457,7 +471,7 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
             projectName = direction.getDirectionCode() + " - " + projectName;
         }
         project.setName(projectName);
-        project.setDescription(demand.getDescription());
+        project.setDescription(demand.getSummary());
         project.setStrategicPlan(cycle.getStrategicPlan());
         project.setOperationalPlan(cycle.getOperationalPlan());
         project.setStrategicPillar(cycle.getStrategicPillar());
@@ -469,9 +483,8 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
         project.setDirectionCode(direction.getDirectionCode());
         project.setAreaName(direction.getAreaName());
         project.setAreaCode(direction.getAreaCode());
-        project.setExpectedImpact(demand.getExpectedImpact());
-        project.setExpectedBenefit(demand.getExpectedBenefit());
-        project.setExpectedBenefits(demand.getExpectedBenefit());
+        project.setExpectedBenefit(demand.getDesiredOutcome());
+        project.setExpectedBenefits(demand.getDesiredOutcome());
         project.setSourceDemandPortfolioRank(cycle.getPortfolioRank());
         project.setExecutionRank(cycle.getPortfolioRank());
         project.setCreatedFromConditionalPlanApproval(true);

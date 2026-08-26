@@ -7,7 +7,6 @@ import cvt.cv.ppmbackend.dto.DemandPlanningCycleDtos.TransitionRequest;
 import cvt.cv.ppmbackend.dto.DemandScoringDtos.DemandScoringResponse;
 import cvt.cv.ppmbackend.dto.DemandScoringDtos.UpsertRequest;
 import cvt.cv.ppmbackend.dto.CommitteeSuggestionResponse;
-import cvt.cv.ppmbackend.dto.PreScoreResponse;
 import cvt.cv.ppmbackend.dto.ComplexityConfigDtos.DemandComplexityResponse;
 import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import cvt.cv.ppmbackend.service.DemandComplexityService;
@@ -53,7 +52,6 @@ public class DemandController {
             @RequestParam(required = false) List<DemandPlanningStatus> status,
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String origin,
-            @RequestParam(required = false) String initialPriority,
             @RequestParam(required = false) String urgency,
             @RequestParam(required = false) UUID strategicPlanId,
             @RequestParam(required = false) UUID operationalPlanId,
@@ -64,7 +62,7 @@ public class DemandController {
             @RequestParam(required = false) String businessArea,
             @RequestParam(required = false) LocalDate createdFrom,
             @RequestParam(required = false) LocalDate createdTo) {
-        return demands.list(page, size, sort, search, status, type, origin, initialPriority, urgency,
+        return demands.list(page, size, sort, search, status, type, origin, urgency,
                 strategicPlanId, operationalPlanId, strategicPillarId, strategicObjectiveId, programId,
                 requester, businessArea, createdFrom, createdTo);
     }
@@ -200,12 +198,6 @@ public class DemandController {
             @Valid @RequestBody UpsertRequest req,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
         return scoring.upsert(id, strategicPlanId, req, actor(user));
-    }
-
-    @PostMapping("/{id}/planning-cycles/{strategicPlanId}/calculate-pre-score")
-    public PreScoreResponse calculatePreScore(@PathVariable UUID id, @PathVariable UUID strategicPlanId,
-            @RequestHeader(value = "X-User-Id", required = false) String user) {
-        return demands.calculatePreScore(id, strategicPlanId, actor(user));
     }
 
     @PostMapping("/{id}/planning-cycles/{strategicPlanId}/calculate-complexity")
