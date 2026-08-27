@@ -8,7 +8,9 @@ import cvt.cv.ppmbackend.dto.DemandScoringDtos.DemandScoringResponse;
 import cvt.cv.ppmbackend.dto.DemandScoringDtos.UpsertRequest;
 import cvt.cv.ppmbackend.dto.CommitteeSuggestionResponse;
 import cvt.cv.ppmbackend.dto.ComplexityConfigDtos.DemandComplexityResponse;
+import cvt.cv.ppmbackend.dto.DemandCapacityAnalysisDtos.CapacityAnalysisResponse;
 import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
+import cvt.cv.ppmbackend.service.DemandCapacityAnalysisService;
 import cvt.cv.ppmbackend.service.DemandComplexityService;
 import cvt.cv.ppmbackend.service.DemandScoringService;
 import cvt.cv.ppmbackend.service.DemandService;
@@ -25,11 +27,14 @@ public class DemandController {
     private final DemandService demands;
     private final DemandScoringService scoring;
     private final DemandComplexityService complexity;
+    private final DemandCapacityAnalysisService capacityAnalysis;
 
-    public DemandController(DemandService demands, DemandScoringService scoring, DemandComplexityService complexity) {
+    public DemandController(DemandService demands, DemandScoringService scoring, DemandComplexityService complexity,
+            DemandCapacityAnalysisService capacityAnalysis) {
         this.demands = demands;
         this.scoring = scoring;
         this.complexity = complexity;
+        this.capacityAnalysis = capacityAnalysis;
     }
 
     private String actor(String header) {
@@ -119,6 +124,33 @@ public class DemandController {
         return demands.assignCommittee(id, strategicPlanId, request, actor(user));
     }
 
+    @PostMapping("/{id}/planning-cycles/{strategicPlanId}/approve")
+    public DemandResponse approve(@PathVariable UUID id, @PathVariable UUID strategicPlanId,
+            @RequestHeader(value = "X-User-Id", required = false) String user) {
+        return demands.approveDecision(id, strategicPlanId, actor(user));
+    }
+
+    @PostMapping("/{id}/planning-cycles/{strategicPlanId}/conditionally-approve")
+    public DemandResponse conditionallyApprove(@PathVariable UUID id, @PathVariable UUID strategicPlanId,
+            @Valid @RequestBody ConditionallyApproveRequest req,
+            @RequestHeader(value = "X-User-Id", required = false) String user) {
+        return demands.conditionallyApprove(id, strategicPlanId, req, actor(user));
+    }
+
+    @PostMapping("/{id}/planning-cycles/{strategicPlanId}/request-revision")
+    public DemandResponse requestRevision(@PathVariable UUID id, @PathVariable UUID strategicPlanId,
+            @Valid @RequestBody RequestRevisionRequest req,
+            @RequestHeader(value = "X-User-Id", required = false) String user) {
+        return demands.requestRevision(id, strategicPlanId, req, actor(user));
+    }
+
+    @PostMapping("/{id}/planning-cycles/{strategicPlanId}/backlog")
+    public DemandResponse moveToBacklog(@PathVariable UUID id, @PathVariable UUID strategicPlanId,
+            @Valid @RequestBody BacklogRequest req,
+            @RequestHeader(value = "X-User-Id", required = false) String user) {
+        return demands.moveToBacklog(id, strategicPlanId, req, actor(user));
+    }
+
     @PostMapping("/{id}/planning-cycles/{strategicPlanId}/send-to-strategic-committee")
     public DemandResponse sendToStrategicCommittee(
             @PathVariable UUID id,
@@ -198,6 +230,11 @@ public class DemandController {
             @Valid @RequestBody UpsertRequest req,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
         return scoring.upsert(id, strategicPlanId, req, actor(user));
+    }
+
+    @GetMapping("/{id}/planning-cycles/{strategicPlanId}/capacity-analysis")
+    public CapacityAnalysisResponse getCapacityAnalysis(@PathVariable UUID id, @PathVariable UUID strategicPlanId) {
+        return capacityAnalysis.analyze(id, strategicPlanId);
     }
 
     @PostMapping("/{id}/planning-cycles/{strategicPlanId}/calculate-complexity")

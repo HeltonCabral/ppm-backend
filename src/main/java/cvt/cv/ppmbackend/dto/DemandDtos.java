@@ -5,6 +5,7 @@ import cvt.cv.ppmbackend.dto.DemandPlanningCycleDtos;
 import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import cvt.cv.ppmbackend.enums.DirectionParticipationType;
 import cvt.cv.ppmbackend.enums.DemandComplexity;
+import cvt.cv.ppmbackend.enums.DemandNature;
 import cvt.cv.ppmbackend.enums.ProfileCategory;
 import cvt.cv.ppmbackend.enums.PlanType;
 import cvt.cv.ppmbackend.enums.Priority;
@@ -56,6 +57,7 @@ public final class DemandDtos {
                         @Size(max = 120) String directionName,
                         @Size(max = 60) String directionCode,
                         DirectionParticipationType directionParticipationType,
+                        DemandNature nature,
                         @Size(max = 150) String sponsor,
                         @NotNull UUID typeId,
                         @Size(max = 80) String origin,
@@ -92,6 +94,7 @@ public final class DemandDtos {
                         @Size(max = 120) String directionName,
                         @Size(max = 60) String directionCode,
                         DirectionParticipationType directionParticipationType,
+                        DemandNature nature,
                         @Size(max = 150) String sponsor,
                         @NotNull UUID typeId,
                         @Size(max = 80) String origin,
@@ -127,6 +130,7 @@ public final class DemandDtos {
                         @Size(max = 120) String directionName,
                         @Size(max = 60) String directionCode,
                         DirectionParticipationType directionParticipationType,
+                        DemandNature nature,
                         @Size(max = 150) String sponsor,
                         UUID typeId,
                         @Size(max = 80) String origin,
@@ -154,6 +158,19 @@ public final class DemandDtos {
         }
 
         public record SendToStrategicCommitteeRequest(@Size(max = 4000) String reason) {
+        }
+
+        public record ConditionallyApproveRequest(
+                        @Size(max = 10000) String condition,
+                        @NotBlank @Size(max = 10000) String justification) {
+        }
+
+        public record RequestRevisionRequest(
+                        @NotBlank @Size(max = 10000) String justification) {
+        }
+
+        public record BacklogRequest(
+                        @NotBlank @Size(max = 10000) String justification) {
         }
 
         public record SendToStrategicCommitteeBulkRequest(
@@ -260,6 +277,7 @@ public final class DemandDtos {
                         String directionName,
                         String directionCode,
                         DirectionParticipationType directionParticipationType,
+                        DemandNature nature,
                         String sponsor,
                         UUID typeId,
                         String type,

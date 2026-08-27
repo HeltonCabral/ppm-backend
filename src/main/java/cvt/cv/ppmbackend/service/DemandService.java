@@ -5,6 +5,7 @@ import cvt.cv.ppmbackend.dto.DemandPlanningCycleDtos;
 import cvt.cv.ppmbackend.dto.CommitteeSuggestionResponse;
 import cvt.cv.ppmbackend.entity.*;
 import cvt.cv.ppmbackend.enums.CommitteeStatus;
+import cvt.cv.ppmbackend.enums.DemandNature;
 import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import cvt.cv.ppmbackend.enums.Priority;
 import cvt.cv.ppmbackend.enums.ProjectStatus;
@@ -275,7 +276,9 @@ public class DemandService {
                 cb.equal(root.get("strategicPlan").get("id"), strategicPlanId),
                 root.get("responsibleCommittee").get("id").in(committeeIds),
                 cb.equal(root.get("status"), IN_PRIORITIZATION),
-                cb.equal(root.get("scoreStatus"), DemandScoreLifecycleService.SCORE_NOT_CALCULATED));
+                root.get("scoreStatus").in(
+                        DemandScoreLifecycleService.SCORE_NOT_CALCULATED,
+                        DemandScoreLifecycleService.SCORE_OUTDATED));
         return planningCycles.findAll(spec, Sort.by(Sort.Direction.ASC, "cycleEntryAt")).stream()
                 .map(cycle -> map(cycle.getDemand()))
                 .toList();
@@ -288,6 +291,53 @@ public class DemandService {
         DemandPlanningCycle cycle = planningCycleService.resolveForMutation(id, strategicPlanId);
         planningCycleService.assignCommittee(cycle, committee, actor(actorId));
         return map(demand);
+    }
+
+    @Transactional
+    public DemandResponse approveDecision(UUID id, UUID strategicPlanId, String actorId) {
+        return decide(id, strategicPlanId, "APPROVED", null, null, actorId);
+    }
+
+    @Transactional
+    public DemandResponse conditionallyApprove(UUID id, UUID strategicPlanId, ConditionallyApproveRequest req,
+            String actorId) {
+        return decide(id, strategicPlanId, "CONDITIONALLY_APPROVE", req.condition(), req.justification(), actorId);
+    }
+
+    @Transactional
+    public DemandResponse requestRevision(UUID id, UUID strategicPlanId, RequestRevisionRequest req, String actorId) {
+        return decide(id, strategicPlanId, "REVISION_REQUESTED", null, req.justification(), actorId);
+    }
+
+    @Transactional
+    public DemandResponse moveToBacklog(UUID id, UUID strategicPlanId, BacklogRequest req, String actorId) {
+        return decide(id, strategicPlanId, "BACKLOG", null, req.justification(), actorId);
+    }
+
+    private DemandResponse decide(UUID id, UUID strategicPlanId, String decision, String condition,
+            String justification, String actorId) {
+        Demand demand = entity(id);
+        DemandPlanningCycle cycle = planningCycleService.resolveForMutation(id, strategicPlanId);
+        planningCycleService.applyCommitteeDecision(cycle, decision, decoratedJustification(decision, condition, justification),
+                actor(actorId), actor(actorId));
+        return map(demand);
+    }
+
+    private String decoratedJustification(String decision, String condition, String justification) {
+        String base = switch (decision) {
+            case "APPROVED" -> "Demanda aprovada";
+            case "CONDITIONALLY_APPROVE" -> "Demanda aprovada condicionalmente";
+            case "REVISION_REQUESTED" -> "Solicitada revisão";
+            case "BACKLOG" -> "Demanda movida para backlog";
+            default -> "Decisão: " + decision;
+        };
+        if (condition != null && !condition.isBlank()) {
+            base += " - Condição: " + condition;
+        }
+        if (justification != null && !justification.isBlank()) {
+            base += " - Justificação: " + justification;
+        }
+        return base;
     }
 
     @Transactional
@@ -598,6 +648,7 @@ public class DemandService {
         d.setDirectionName(req.directionName());
         d.setDirectionCode(req.directionCode());
         d.setDirectionParticipationType(req.directionParticipationType());
+        d.setNature(req.nature() != null ? req.nature() : DemandNature.NORMAL);
         d.setSponsor(req.sponsor());
         d.setType(req.typeId() == null ? null : lookups.requireActiveInCategory(req.typeId(), "DEMAND_TYPE"));
         d.setOrigin(normalizedOrigin);
@@ -679,7 +730,7 @@ public class DemandService {
         List<DemandSuccessCriterionResponse> successCriteriaResponses = successCriteria.list(d.getId());
         return new DemandResponse(d.getId(), d.getCode(), d.getTitle(), strategicPillar, strategicElement,
                 strategicObjective, d.getSummary(), d.getRequester(), d.getAreaName(),
-            d.getAreaCode(), d.getDirectionName(), d.getDirectionCode(), d.getDirectionParticipationType(), d.getSponsor(), d.getTypeId(), typeCode, d.getOrigin(), d.getEasyVistaRef(),
+            d.getAreaCode(), d.getDirectionName(), d.getDirectionCode(), d.getDirectionParticipationType(), d.getNature(), d.getSponsor(), d.getTypeId(), typeCode, d.getOrigin(), d.getEasyVistaRef(),
                 d.getDomainId(), domainCode, d.getImpactedSystem(),
                 d.getCurrentEvidence(), d.getProblemStatement(),
                 d.getDesiredOutcome(), d.getProposedResponse(), d.getUrgency(), d.getEstimatedBudget(), d.getDesiredDate(), d.getNotes(),
@@ -946,6 +997,7 @@ public class DemandService {
                 p.directionName() != null ? p.directionName() : d.getDirectionName(),
                 p.directionCode() != null ? p.directionCode() : d.getDirectionCode(),
                 p.directionParticipationType() != null ? p.directionParticipationType() : d.getDirectionParticipationType(),
+                p.nature() != null ? p.nature() : d.getNature(),
                 p.sponsor() != null ? p.sponsor() : d.getSponsor(),
                 p.typeId() != null ? p.typeId() : d.getTypeId(),
                 p.origin() != null ? p.origin() : d.getOrigin(),
@@ -971,7 +1023,7 @@ public class DemandService {
     }
 
     private Create toCreate(Update u) {
-        return new Create(u.title(), null, null, null, u.summary(), u.requester(), u.areaName(), u.areaCode(), u.directionName(), u.directionCode(), u.directionParticipationType(), u.sponsor(), u.typeId(),
+        return new Create(u.title(), null, null, null, u.summary(), u.requester(), u.areaName(), u.areaCode(), u.directionName(), u.directionCode(), u.directionParticipationType(), u.nature(), u.sponsor(), u.typeId(),
                 u.origin(), u.easyVistaRef(), u.supplierIds(), u.domainId(), u.impactedSystem(), u.currentEvidence(),
                 u.problemStatement(), u.desiredOutcome(), u.proposedResponse(), u.urgency(), u.estimatedBudget(),
                 u.desiredDate(), u.notes(), u.risksIdentified(),

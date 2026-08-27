@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import cvt.cv.ppmbackend.enums.DirectionParticipationType;
 import cvt.cv.ppmbackend.enums.DemandComplexity;
+import cvt.cv.ppmbackend.enums.DemandNature;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -61,6 +62,10 @@ public class Demand extends BaseEntity {
     @Column(length = 50)
     private DirectionParticipationType directionParticipationType;
 
+    @Enumerated(EnumType.STRING)
+    @Column(length = 30)
+    @ColumnDefault("'NORMAL'")
+    private DemandNature nature = DemandNature.NORMAL;
 
     @Column(length = 150)
     private String sponsor;
