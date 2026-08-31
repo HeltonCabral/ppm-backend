@@ -34,11 +34,12 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
     private static final List<StrategicPlanStatus> PLANNING_STATUSES = List.of(
             StrategicPlanStatus.DRAFT, StrategicPlanStatus.CONDITIONALLY_APPROVED, StrategicPlanStatus.APPROVED);
     private static final List<DemandPlanningStatus> APPROVED_CYCLE_STATUSES = List.of(APPROVED, CONDITIONALLY_APPROVED);
-    private static final List<DemandPlanningStatus> STILL_PENDING_CYCLE_STATUSES = List.of(DRAFT, IN_ANALYSIS,
-            IN_PRIORITIZATION, AWAITING_COMMITTEE);
+    private static final List<DemandPlanningStatus> BACKLOG_CYCLE_STATUSES = List.of(DRAFT, IN_ANALYSIS,
+            IN_PRIORITIZATION, AWAITING_COMMITTEE, BACKLOG);
 
     private final StrategicPlanRepository plans;
     private final DemandPlanningCycleRepository planningCycles;
+    private final StrategicObjectiveRepository objectives;
     private final ProgramRepository programs;
     private final ProjectService projects;
     private final ProjectRepository projectRepository;
@@ -48,12 +49,14 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
     private final StrategicPlanningConfigService planningConfig;
 
     public StrategicPlanService(StrategicPlanRepository r, DemandPlanningCycleRepository planningCycles,
-            ProgramRepository programs, ProjectService projects, ProjectRepository projectRepository,
-            OperationalPlanRepository operationalPlans, DemandHistoryService historyService,
-            DemandScoreLifecycleService scoreLifecycle, StrategicPlanningConfigService planningConfig) {
+            StrategicObjectiveRepository objectives, ProgramRepository programs, ProjectService projects,
+            ProjectRepository projectRepository, OperationalPlanRepository operationalPlans,
+            DemandHistoryService historyService, DemandScoreLifecycleService scoreLifecycle,
+            StrategicPlanningConfigService planningConfig) {
         super(r, "Plano estratégico");
         this.plans = r;
         this.planningCycles = planningCycles;
+        this.objectives = objectives;
         this.programs = programs;
         this.projects = projects;
         this.projectRepository = projectRepository;
@@ -106,6 +109,71 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
     }
 
     @Transactional(readOnly = true)
+    public StrategicPlan getActivePlan() {
+        return findActivePlan()
+                .orElseThrow(() -> new ResourceNotFoundException("Não existe nenhum Plano Estratégico ativo."));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public StrategicPlan findById(UUID id) {
+        return plans.findById(id)
+                .filter(plan -> plan.getDeletedAt() == null)
+                .orElseThrow(() -> new ResourceNotFoundException("Plano estratégico não encontrado: " + id));
+    }
+
+    @Override
+    public void delete(UUID id) {
+        StrategicPlan plan = findById(id);
+        Map<String, Long> deps = dependencyCounts(id);
+        if (plan.getStatus() != StrategicPlanStatus.DRAFT || deps.values().stream().anyMatch(count -> count > 0)) {
+            throw new DomainException(HttpStatus.CONFLICT, "STRATEGIC_PLAN_DELETE_BLOCKED",
+                    "Apenas planos em DRAFT e sem dependências podem ser eliminados", new LinkedHashMap<>(deps));
+        }
+        plan.setDeletedAt(Instant.now());
+        plans.save(plan);
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> summary(UUID id) {
+        StrategicPlan plan = findById(id);
+        List<OperationalPlan> operationalPlanList = operationalPlans.findByStrategicPlan_Id(id);
+        List<Project> planProjects = operationalPlanList.stream()
+                .flatMap(p -> projectRepository.findByOperationalPlan_Id(p.getId()).stream())
+                .toList();
+        java.math.BigDecimal budget = planProjects.stream()
+                .map(Project::getBudget)
+                .filter(Objects::nonNull)
+                .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+        Map<String, Long> projectsByStatus = new LinkedHashMap<>();
+        planProjects.forEach(p -> projectsByStatus.merge(p.getStatus().name(), 1L, Long::sum));
+
+        return Map.ofEntries(
+                Map.entry("strategicPlan", toPlanSummary(plan)),
+                Map.entry("operationalPlans", operationalPlanList.size()),
+                Map.entry("objectives", objectives.findByStrategicPlan_Id(id).size()),
+                Map.entry("programs", programs.findByStrategicObjectives_StrategicPlan_Id(id).size()),
+                Map.entry("projects", planProjects.size()),
+                Map.entry("totalBudget", budget),
+                Map.entry("projectsByStatus", projectsByStatus),
+                Map.entry("approval", Map.of(
+                        "date", Optional.ofNullable(plan.getApprovalDate()).map(Object::toString).orElse(""),
+                        "approvedBy", Optional.ofNullable(plan.getApprovedBy()).orElse(""))));
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Long> dependencyCounts(UUID id) {
+        long operationalPlanCount = operationalPlans.findByStrategicPlan_Id(id).size();
+        long objectiveCount = objectives.findByStrategicPlan_Id(id).size();
+        long programCount = programs.findByStrategicObjectives_StrategicPlan_Id(id).size();
+        long projectCount = operationalPlans.findByStrategicPlan_Id(id).stream()
+                .mapToLong(p -> projectRepository.findByOperationalPlan_Id(p.getId()).size())
+                .sum();
+        return Map.of("operationalPlans", operationalPlanCount, "objectives", objectiveCount,
+                "programs", programCount, "projects", projectCount);
+    }
+
+    @Transactional(readOnly = true)
     public List<PlanListItem> history() {
         return plans.findAllByDeletedAtIsNullOrderByStartYearDesc().stream()
                 .map(p -> new PlanListItem(p.getId(), p.getName(), p.getStartYear(), p.getEndYear(),
@@ -123,7 +191,7 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
         int horizonYears = config.getHorizonYears();
 
         Optional<StrategicPlan> active = findActivePlan();
-        int newStartYear = active.map(p -> p.getStartYear() + 1).orElseGet(() -> LocalDate.now().getYear() + 1);
+        int newStartYear = nextPlanStartYear(active);
         int newEndYear = newStartYear + horizonYears - 1;
 
         StrategicPlan plan = new StrategicPlan();
@@ -140,6 +208,10 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
         createFirstOperationalPlan(savedPlan, newStartYear);
 
         return savedPlan;
+    }
+
+    private int nextPlanStartYear(Optional<StrategicPlan> activePlan) {
+        return activePlan.map(p -> p.getStartYear() + 1).orElseGet(() -> LocalDate.now().getYear() + 1);
     }
 
     private void createFirstOperationalPlan(StrategicPlan plan, int fiscalYear) {
@@ -168,7 +240,7 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
                 p.getId(), p.getName(), p.getStartYear(), p.getEndYear(), p.getHorizonYears(),
                 p.getRevisionNumber(), p.getStatus(), progressOf(p.getId()))).orElse(null);
 
-        int nextStartYear = activePlan.map(p -> p.getStartYear() + 2).orElseGet(() -> LocalDate.now().getYear() + 2);
+        int nextStartYear = nextPlanStartYear(activePlan);
         int nextEndYear = nextStartYear + config.getHorizonYears() - 1;
         NextPeriod nextPeriod = new NextPeriod(nextStartYear, nextEndYear, planningPlan.isEmpty());
 
@@ -244,6 +316,11 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
     }
 
     public ConditionalApprovalResponse conditionalApprove(UUID planId, String actorId, String actorName) {
+        return conditionalApprove(planId, actorId, actorName, true);
+    }
+
+    private ConditionalApprovalResponse conditionalApprove(UUID planId, String actorId, String actorName,
+            boolean conditionalPlanApproval) {
         StrategicPlan plan = findById(planId);
 
         if (plan.getStatus() != StrategicPlanStatus.DRAFT) {
@@ -261,7 +338,8 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
         List<DemandPlanningCycle> approvedCycles = planningCycles.findAllByStrategicPlan_IdAndStatusIn(
                 planId, APPROVED_CYCLE_STATUSES);
 
-        Instant now = Instant.now();
+        String approvalMode = conditionalPlanApproval ? "CONDITIONAL" : "FINAL";
+        String approvalDescription = conditionalPlanApproval ? "condicional" : "definitiva";
 
         for (DemandPlanningCycle cycle : approvedCycles) {
             Demand demand = cycle.getDemand();
@@ -302,6 +380,8 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
                 if (implementationDirections.size() == 1) {
                     // Create only 1 Project
                     Project project = createProjectFromDemand(demand, cycle, implementationDirections.get(0), null, false);
+                    project.setCreatedFromConditionalPlanApproval(conditionalPlanApproval);
+                    project.setCreatedFromDemandBacklog(false);
                     projects.saveFromDemand(project, demand, cycle, null, null, null, null, null, actorId);
                     projectsCreated++;
                     convertedToProjects++;
@@ -309,19 +389,23 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
                     convertCycleToProject(cycle, project, actorId);
 
                     // Log history
-                    historyService.log(demand, "DEMAND_CONVERTED_TO_PROJECT_BY_CONDITIONAL_PLAN_APPROVAL",
+                    historyService.log(demand, "DEMAND_CONVERTED_TO_PROJECT_BY_" + approvalMode + "_PLAN_APPROVAL",
                             APPROVED.name(), CONVERTED_TO_PROJECT.name(),
-                            "Demanda convertida em Projeto pela aprovação condicional do Plano Estratégico",
+                            "Demanda convertida em Projeto pela aprovação " + approvalDescription
+                                    + " do Plano Estratégico",
                             actorId, actorName, Map.of("projectId", project.getId().toString()));
                 } else {
                     // Create 1 Program with 1 Project per implementation direction
                     Program program = createProgramFromDemand(demand, cycle);
+                    program.setCreatedFromConditionalPlanApproval(conditionalPlanApproval);
                     programs.save(program);
                     programsCreated++;
                     convertedToPrograms++;
 
                     for (DemandParticipatingDirection direction : implementationDirections) {
                         Project project = createProjectFromDemand(demand, cycle, direction, program, true);
+                        project.setCreatedFromConditionalPlanApproval(conditionalPlanApproval);
+                        project.setCreatedFromDemandBacklog(false);
                         projects.saveFromDemand(project, demand, cycle, null, null, null, null, null, actorId);
                         projectsCreated++;
                     }
@@ -329,9 +413,10 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
                     convertCycleToProgram(cycle, program, actorId);
 
                     // Log history
-                    historyService.log(demand, "DEMAND_CONVERTED_TO_PROGRAM_BY_CONDITIONAL_PLAN_APPROVAL",
+                    historyService.log(demand, "DEMAND_CONVERTED_TO_PROGRAM_BY_" + approvalMode + "_PLAN_APPROVAL",
                             APPROVED.name(), CONVERTED_TO_PROGRAM.name(),
-                            "Demanda convertida em Programa pela aprovação condicional do Plano Estratégico",
+                            "Demanda convertida em Programa pela aprovação " + approvalDescription
+                                    + " do Plano Estratégico",
                             actorId, actorName, Map.of("programId", program.getId().toString(),
                                     "projectsCreated", String.valueOf(implementationDirections.size())));
                 }
@@ -359,61 +444,88 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
     public FinalApprovalResponse approve(UUID planId, String actorId, String actorName) {
         StrategicPlan plan = findById(planId);
 
-        if (plan.getStatus() != StrategicPlanStatus.CONDITIONALLY_APPROVED) {
-            throw new BadRequestException("Somente um plano CONDITIONALLY_APPROVED pode ser aprovado definitivamente.");
+        if (plan.getStatus() != StrategicPlanStatus.DRAFT
+                && plan.getStatus() != StrategicPlanStatus.CONDITIONALLY_APPROVED) {
+            throw new BadRequestException(
+                    "Somente um plano DRAFT ou CONDITIONALLY_APPROVED pode ser aprovado definitivamente.");
         }
 
-        int alreadyConverted = 0;
+        int alreadyConverted = (int) planningCycles.findAllByStrategicPlan_Id(planId).stream()
+                .filter(this::isAlreadyConverted)
+                .count();
+        int convertedToProjects = 0;
+        int convertedToPrograms = 0;
+        int projectsCreated = 0;
+        int programsCreated = 0;
         int movedToBacklog = 0;
+        int backlogProjectsCreated = 0;
         List<String> errors = new ArrayList<>();
 
-        Instant now = Instant.now();
-
-        // Count already converted demands
-        List<DemandPlanningCycle> allApprovedCycles = planningCycles.findAllByStrategicPlan_IdAndStatusIn(
-                planId, APPROVED_CYCLE_STATUSES);
-
-        for (DemandPlanningCycle cycle : allApprovedCycles) {
-            if (isAlreadyConverted(cycle)) {
-                alreadyConverted++;
-            }
+        if (plan.getStatus() == StrategicPlanStatus.DRAFT) {
+            ConditionalApprovalResponse conversion = conditionalApprove(planId, actorId, actorName, false);
+            convertedToProjects = conversion.convertedToProjects();
+            convertedToPrograms = conversion.convertedToPrograms();
+            projectsCreated = conversion.projectsCreated();
+            programsCreated = conversion.programsCreated();
+            errors.addAll(conversion.errors());
+            plan = findById(planId);
         }
 
-        // Find cycles still pending deliberation and move to BACKLOG
+        // Create backlog projects for cycles not selected by the committee.
         List<DemandPlanningCycle> cyclesToBacklog = planningCycles.findAllByStrategicPlan_IdAndStatusIn(
-                planId, STILL_PENDING_CYCLE_STATUSES);
+                planId, BACKLOG_CYCLE_STATUSES);
 
         for (DemandPlanningCycle cycle : cyclesToBacklog) {
             Demand demand = cycle.getDemand();
+            if (isAlreadyConverted(cycle)) {
+                continue;
+            }
             try {
                 DemandPlanningStatus previousStatus = cycle.getStatus();
-                scoreLifecycle.applyStatusTransition(cycle, previousStatus, BACKLOG,
-                        "Ciclo de planeamento encerrado pela aprovação final do Plano Estratégico");
-                cycle.setStatus(BACKLOG);
-                planningCycles.save(cycle);
-                movedToBacklog++;
+                Project backlogProject = createBacklogProjectFromDemand(demand, cycle);
+                Project savedProject = projects.saveFromDemand(
+                        backlogProject, demand, cycle, null, null, null, null, null, actorId);
 
-                // Log history
-                historyService.log(demand, "DEMAND_MOVED_TO_BACKLOG_BY_FINAL_PLAN_APPROVAL",
-                        previousStatus.name(), BACKLOG.name(),
-                        "Demanda movida automaticamente para Backlog na aprovação final do Plano Estratégico.",
-                        actorId, actorName, null);
+                convertCycleToProject(cycle, savedProject, actorId,
+                        "Demanda convertida em projeto de backlog pela aprovação final do Plano Estratégico");
+                if (previousStatus != BACKLOG) {
+                    movedToBacklog++;
+                }
+                backlogProjectsCreated++;
+
+                historyService.log(demand, "DEMAND_CONVERTED_TO_PROJECT_BACKLOG_BY_FINAL_PLAN_APPROVAL",
+                        previousStatus.name(), CONVERTED_TO_PROJECT.name(),
+                        "Demanda enviada para o backlog de projetos na aprovação final do Plano Estratégico.",
+                        actorId, actorName, Map.of("projectId", savedProject.getId().toString(),
+                                "projectStatus", ProjectStatus.BACKLOG.name()));
             } catch (Exception e) {
                 errors.add("Demanda " + demand.getCode() + ": " + e.getMessage());
             }
         }
 
-        // Update plan status
-        plan.setStatus(StrategicPlanStatus.APPROVED);
+        plans.findFirstByStatus(StrategicPlanStatus.ACTIVE).ifPresent(current -> {
+            if (!current.getId().equals(planId)) {
+                current.setStatus(StrategicPlanStatus.SUPERSEDED);
+                plans.save(current);
+            }
+        });
+
+        // Final approval activates the plan immediately.
+        plan.setStatus(StrategicPlanStatus.ACTIVE);
         plan.setApprovalDate(LocalDate.now());
         plan.setApprovedBy(actorName);
         plans.save(plan);
 
         return new FinalApprovalResponse(
                 planId,
-                StrategicPlanStatus.APPROVED,
+                StrategicPlanStatus.ACTIVE,
+                convertedToProjects,
+                convertedToPrograms,
+                projectsCreated,
+                programsCreated,
                 alreadyConverted,
                 movedToBacklog,
+                backlogProjectsCreated,
                 errors);
     }
 
@@ -422,11 +534,15 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
     }
 
     private void convertCycleToProject(DemandPlanningCycle cycle, Project project, String actorId) {
+        convertCycleToProject(cycle, project, actorId, "Demanda convertida em projeto");
+    }
+
+    private void convertCycleToProject(DemandPlanningCycle cycle, Project project, String actorId, String reason) {
         DemandPlanningStatus from = cycle.getStatus();
         cycle.setConvertedProject(project);
         cycle.setConvertedAt(Instant.now());
         cycle.setConvertedBy(actorId);
-        scoreLifecycle.applyStatusTransition(cycle, from, CONVERTED_TO_PROJECT, "Demanda convertida em projeto");
+        scoreLifecycle.applyStatusTransition(cycle, from, CONVERTED_TO_PROJECT, reason);
         cycle.setStatus(CONVERTED_TO_PROJECT);
         planningCycles.save(cycle);
     }
@@ -457,7 +573,6 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
         program.setEstimatedBudget(demand.getEstimatedBudget());
         program.setSourceDemandId(demand.getId());
         program.setSourceDemandPortfolioRank(cycle.getPortfolioRank());
-        program.setCreatedFromConditionalPlanApproval(true);
         program.setStatus(ProgramStatus.PLANNED);
         return program;
     }
@@ -487,9 +602,51 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
         project.setExpectedBenefits(demand.getDesiredOutcome());
         project.setSourceDemandPortfolioRank(cycle.getPortfolioRank());
         project.setExecutionRank(cycle.getPortfolioRank());
-        project.setCreatedFromConditionalPlanApproval(true);
         project.setStatus(ProjectStatus.PLANNED);
         project.setProgram(program);
+        return project;
+    }
+
+    private Project createBacklogProjectFromDemand(Demand demand, DemandPlanningCycle cycle) {
+        Project project = new Project();
+        DemandParticipatingDirection fallbackDirection = demand.getParticipatingDirections().stream()
+                .filter(direction -> direction.getParticipationType() == DirectionParticipationType.IMPLEMANTATION)
+                .findFirst()
+                .orElse(null);
+        String directionName = demand.getDirectionName();
+        String directionCode = demand.getDirectionCode();
+        String areaName = demand.getAreaName();
+        String areaCode = demand.getAreaCode();
+        if ((directionName == null || directionName.isBlank()) && fallbackDirection != null) {
+            directionName = fallbackDirection.getDirectionName();
+            directionCode = fallbackDirection.getDirectionCode();
+            areaName = fallbackDirection.getAreaName();
+            areaCode = fallbackDirection.getAreaCode();
+        }
+        project.setName(demand.getTitle());
+        project.setDescription(demand.getSummary());
+        project.setStrategicPlan(cycle.getStrategicPlan());
+        project.setOperationalPlan(cycle.getOperationalPlan());
+        project.setStrategicPillar(cycle.getStrategicPillar());
+        project.setStrategicObjective(cycle.getStrategicObjective());
+        project.setDomain(demand.getDomain());
+        project.setProjectType(demand.getType());
+        project.setBusinessArea(demand.getAreaName());
+        project.setDirectionName(directionName);
+        project.setDirectionCode(directionCode);
+        project.setAreaName(areaName);
+        project.setAreaCode(areaCode);
+        project.setImpactedSystem(demand.getImpactedSystem());
+        project.setExpectedBenefit(demand.getDesiredOutcome());
+        project.setExpectedBenefits(demand.getDesiredOutcome());
+        project.setBudgetLine(demand.getBudgetLine() == null ? null : demand.getBudgetLine().getCode());
+        project.setBudget(demand.getEstimatedBudget());
+        project.setEstimatedBudget(demand.getEstimatedBudget());
+        project.setSourceDemandPortfolioRank(cycle.getPortfolioRank());
+        project.setExecutionRank(cycle.getPortfolioRank());
+        project.setCreatedFromConditionalPlanApproval(false);
+        project.setCreatedFromDemandBacklog(true);
+        project.setStatus(ProjectStatus.BACKLOG);
         return project;
     }
 }

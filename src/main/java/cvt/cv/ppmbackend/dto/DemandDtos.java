@@ -64,6 +64,7 @@ public final class DemandDtos {
                         @Size(max = 120) String easyVistaRef,
                         Set<UUID> supplierIds,
                         UUID domainId,
+                        UUID budgetLineId,
                         @Size(max = 150) String impactedSystem,
                         @Size(max = 10000) String currentEvidence,
                         @NotBlank @Size(max = 10000) String problemStatement,
@@ -72,6 +73,7 @@ public final class DemandDtos {
                         @Size(max = 40) String urgency,
                         @PositiveOrZero BigDecimal estimatedBudget,
                         LocalDate desiredDate,
+                        LocalDate mandatoryDeadline,
                         @Size(max = 10000) String notes,
                         @Size(max = 10000) String risksIdentified,
                         @Size(max = 10000) String dependenciesIdentified,
@@ -101,6 +103,7 @@ public final class DemandDtos {
                         @Size(max = 120) String easyVistaRef,
                         Set<UUID> supplierIds,
                         UUID domainId,
+                        UUID budgetLineId,
                         @Size(max = 150) String impactedSystem,
                         @Size(max = 10000) String currentEvidence,
                         @NotBlank @Size(max = 10000) String problemStatement,
@@ -109,6 +112,7 @@ public final class DemandDtos {
                         @Size(max = 40) String urgency,
                         @PositiveOrZero BigDecimal estimatedBudget,
                         LocalDate desiredDate,
+                        LocalDate mandatoryDeadline,
                         @Size(max = 10000) String notes,
                         @Size(max = 10000) String risksIdentified,
                         @Size(max = 10000) String dependenciesIdentified,
@@ -137,6 +141,7 @@ public final class DemandDtos {
                         @Size(max = 120) String easyVistaRef,
                         Set<UUID> supplierIds,
                         UUID domainId,
+                        UUID budgetLineId,
                         @Size(max = 150) String impactedSystem,
                         @Size(max = 10000) String currentEvidence,
                         @Size(max = 10000) String problemStatement,
@@ -145,6 +150,7 @@ public final class DemandDtos {
                         @Size(max = 40) String urgency,
                         @PositiveOrZero BigDecimal estimatedBudget,
                         LocalDate desiredDate,
+                        LocalDate mandatoryDeadline,
                         @Size(max = 10000) String notes,
                         @Size(max = 10000) String risksIdentified,
                         @Size(max = 10000) String dependenciesIdentified,
@@ -160,17 +166,25 @@ public final class DemandDtos {
         public record SendToStrategicCommitteeRequest(@Size(max = 4000) String reason) {
         }
 
+        public record ApproveRequest(
+                        @Size(max = 10000) String justification,
+                        @Size(max = 200) String meetingReference) {
+        }
+
         public record ConditionallyApproveRequest(
                         @Size(max = 10000) String condition,
-                        @NotBlank @Size(max = 10000) String justification) {
+                        @NotBlank @Size(max = 10000) String justification,
+                        @Size(max = 200) String meetingReference) {
         }
 
         public record RequestRevisionRequest(
-                        @NotBlank @Size(max = 10000) String justification) {
+                        @NotBlank @Size(max = 10000) String justification,
+                        @Size(max = 200) String meetingReference) {
         }
 
         public record BacklogRequest(
-                        @NotBlank @Size(max = 10000) String justification) {
+                        @NotBlank @Size(max = 10000) String justification,
+                        @Size(max = 200) String meetingReference) {
         }
 
         public record SendToStrategicCommitteeBulkRequest(
@@ -285,6 +299,8 @@ public final class DemandDtos {
                         String easyVistaRef,
                         UUID domainId,
                         String domain,
+                        UUID budgetLineId,
+                        String budgetLine,
                         String impactedSystem,
                         String currentEvidence,
                         String problemStatement,
@@ -293,6 +309,7 @@ public final class DemandDtos {
                         String urgency,
                         BigDecimal estimatedBudget,
                         LocalDate desiredDate,
+                        LocalDate mandatoryDeadline,
                         String notes,
                         String risksIdentified,
                         String dependenciesIdentified,
@@ -311,12 +328,14 @@ public final class DemandDtos {
                         Long version,
                         LookupValueSummary typeData,
                         LookupValueSummary domainData,
+                        LookupValueSummary budgetLineData,
                         DemandPlanningCycleDtos.Response currentPlanningCycle,
                         List<DemandAttachmentResponse> attachments,
                         List<ParticipatingDirectionResponse> participatingDirections,
                         List<DemandProfileRequirementResponse> profileRequirements,
                         List<SupplierSummary> suppliers,
-                        List<DemandSuccessCriterionResponse> successCriteria) {
+                        List<DemandSuccessCriterionResponse> successCriteria,
+                        List<DemandDependencyDtos.Response> dependencies) {
         }
 
         public record DemandHistoryResponse(

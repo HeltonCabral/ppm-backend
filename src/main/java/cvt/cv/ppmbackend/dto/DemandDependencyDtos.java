@@ -17,11 +17,11 @@ public final class DemandDependencyDtos {
     }
 
     public record Response(
+            UUID id,
             UUID dependencyId,
-            UUID demandId,
             UUID dependsOnDemandId,
-            String dependsOnDemandCode,
-            String dependsOnDemandTitle,
+            String code,
+            String title,
             DemandDependencyType type,
             String description) {
     }

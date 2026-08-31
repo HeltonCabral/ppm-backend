@@ -113,6 +113,8 @@ public class Project extends BaseEntity {
     private Integer sourceDemandPortfolioRank;
     @Column(name = "created_from_conditional_plan_approval")
     private Boolean createdFromConditionalPlanApproval;
+    @Column(name = "created_from_demand_backlog")
+    private Boolean createdFromDemandBacklog;
     @Column(name = "extra_plan_justification", columnDefinition = "TEXT")
     private String extraPlanJustification;
     @OneToOne(mappedBy = "project", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)

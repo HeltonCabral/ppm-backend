@@ -91,6 +91,12 @@ public class Demand extends BaseEntity {
     @JoinColumn(name = "domain_id")
     private LookupValue domain;
 
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "budget_line_id")
+    private LookupValue budgetLine;
+
+
     @Column(name = "impacted_system", length = 150)
     private String impactedSystem;
 
@@ -114,6 +120,9 @@ public class Demand extends BaseEntity {
 
     @Column(name = "desired_date")
     private LocalDate desiredDate;
+
+    @Column(name = "mandatory_deadline")
+    private LocalDate mandatoryDeadline;
 
     @Column(columnDefinition = "TEXT")
     private String notes;
@@ -193,5 +202,10 @@ public class Demand extends BaseEntity {
     @JsonProperty("domainId")
     public UUID getDomainId() {
         return domain != null ? domain.getId() : null;
+    }
+
+    @JsonProperty("budgetLineId")
+    public UUID getBudgetLineId() {
+        return budgetLine != null ? budgetLine.getId() : null;
     }
 }

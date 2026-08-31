@@ -1,16 +1,20 @@
 package cvt.cv.ppmbackend.service;
 
 import cvt.cv.ppmbackend.dto.CommitteeDecisionDtos.*;
+import cvt.cv.ppmbackend.dto.DemandCommitteeDecisionDtos.DecisionCommand;
 import cvt.cv.ppmbackend.entity.Demand;
+import cvt.cv.ppmbackend.entity.DemandCommitteeDecision;
 import cvt.cv.ppmbackend.entity.DemandDependency;
 import cvt.cv.ppmbackend.entity.DemandPlanningCycle;
 import cvt.cv.ppmbackend.entity.DemandProfileRequirement;
 import cvt.cv.ppmbackend.entity.Profile;
 import cvt.cv.ppmbackend.entity.StrategicPlan;
+import cvt.cv.ppmbackend.enums.CommitteeDecision;
 import cvt.cv.ppmbackend.enums.DemandDependencyType;
 import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import cvt.cv.ppmbackend.exception.BadRequestException;
 import cvt.cv.ppmbackend.exception.ResourceNotFoundException;
+import cvt.cv.ppmbackend.repository.DemandCommitteeDecisionRepository;
 import cvt.cv.ppmbackend.repository.DemandDependencyRepository;
 import cvt.cv.ppmbackend.repository.DemandPlanningCycleRepository;
 import cvt.cv.ppmbackend.repository.DemandProfileRequirementRepository;
@@ -22,6 +26,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import static cvt.cv.ppmbackend.enums.DemandPlanningStatus.*;
 
@@ -29,8 +34,9 @@ import static cvt.cv.ppmbackend.enums.DemandPlanningStatus.*;
 @Transactional
 public class CommitteeDecisionService {
 
-    private static final Set<String> VALID_DECISIONS = Set.of(
-            "APPROVED", "CONDITIONALLY_APPROVE", "REVISION_REQUESTED", "BACKLOG");
+    private static final Set<CommitteeDecision> REQUIRE_JUSTIFICATION = Set.of(
+            CommitteeDecision.CONDITIONALLY_APPROVED, CommitteeDecision.REQUEST_REVISION,
+            CommitteeDecision.BACKLOG);
 
     private static final Set<DemandPlanningStatus> ELIGIBLE_STATUSES = Set.of(
             IN_PRIORITIZATION, AWAITING_COMMITTEE);
@@ -40,18 +46,20 @@ public class CommitteeDecisionService {
     private final StrategicPlanRepository strategicPlans;
     private final DemandProfileRequirementRepository profileRequirements;
     private final DemandDependencyRepository dependencies;
+    private final DemandCommitteeDecisionRepository decisions;
 
     public CommitteeDecisionService(
             DemandPlanningCycleRepository planningCycles,
             DemandPlanningCycleService planningCycleService,
             StrategicPlanRepository strategicPlans,
             DemandProfileRequirementRepository profileRequirements,
-            DemandDependencyRepository dependencies) {
+            DemandDependencyRepository dependencies, DemandCommitteeDecisionRepository decisions) {
         this.planningCycles = planningCycles;
         this.planningCycleService = planningCycleService;
         this.strategicPlans = strategicPlans;
         this.profileRequirements = profileRequirements;
         this.dependencies = dependencies;
+        this.decisions = decisions;
     }
 
     public DecisionDashboardResponse dashboard(UUID strategicPlanId) {
@@ -62,7 +70,9 @@ public class CommitteeDecisionService {
 
         List<DemandPlanningCycle> planCycles = planningCycles.findAllByStrategicPlan_Id(strategicPlanId);
         List<DemandPlanningCycle> scenarioCycles = planCycles.stream().filter(this::isInScenario).toList();
-        List<DemandPlanningCycle> pendingCycles = planCycles.stream().filter(this::isPendingDecision).toList();
+        Set<UUID> decidedCycleIds = decisions.findDecidedCycleIdsByStrategicPlan(strategicPlanId);
+        List<DemandPlanningCycle> pendingCycles = planCycles.stream()
+                .filter(cycle -> isPendingDecision(cycle, decidedCycleIds)).toList();
         Set<UUID> scenarioDemandIds = scenarioCycles.stream()
                 .map(c -> c.getDemand().getId())
                 .collect(java.util.stream.Collectors.toSet());
@@ -76,7 +86,7 @@ public class CommitteeDecisionService {
                         .filter(dependency -> dependency.getType() == DemandDependencyType.BLOCKING)
                         .toList();
 
-        int deliberated = (int) planCycles.stream().filter(this::isDeliberated).count();
+        int deliberated = (int) planCycles.stream().filter(c -> decidedCycleIds.contains(c.getId())).count();
         int pending = pendingCycles.size();
         int openConditions = (int) scenarioCycles.stream()
                 .filter(cycle -> cycle.getStatus() == CONDITIONALLY_APPROVED)
@@ -156,16 +166,14 @@ public class CommitteeDecisionService {
     }
 
     private void validateDecision(BulkDeliberationRequest req) {
-        String decision = norm(req.decision());
-        if (!VALID_DECISIONS.contains(decision)) {
-            throw new BadRequestException("Decisão inválida: " + req.decision() +
-                    ". Valores permitidos: " + String.join(", ", VALID_DECISIONS));
+        CommitteeDecision decision = CommitteeDecision.from(req.decision());
+        if (decision == null) {
+            throw new BadRequestException("Decisão inválida: " + req.decision() + ". Valores permitidos: "
+                    + Arrays.stream(CommitteeDecision.values()).map(Enum::name).collect(Collectors.joining(", ")));
         }
-
-        if ("REVISION_REQUESTED".equals(decision)) {
-            if (req.justification() == null || req.justification().isBlank()) {
-                throw new BadRequestException("justification é obrigatória quando decision = REVISION_REQUESTED");
-            }
+        if (REQUIRE_JUSTIFICATION.contains(decision)
+                && (req.justification() == null || req.justification().isBlank())) {
+            throw new BadRequestException("justification é obrigatória quando decision = " + decision);
         }
     }
 
@@ -215,13 +223,13 @@ public class CommitteeDecisionService {
 
     private DemandDecisionInfo applyDecisionAndMap(DemandPlanningCycle cycle, BulkDeliberationRequest req,
             String actorId) {
-        String decision = norm(req.decision());
         DemandPlanningStatus previousStatus = cycle.getStatus();
-        String justification = decoratedJustification(decision, req);
 
-        DemandPlanningCycle updated = planningCycleService.applyCommitteeDecision(cycle, decision, justification,
-                actor(actorId), actor(actorId));
+        DemandCommitteeDecision recorded = planningCycleService.applyCommitteeDecision(cycle,
+                new DecisionCommand(CommitteeDecision.from(req.decision()), req.justification(), req.condition(),
+                        req.meetingReference(), actor(actorId), actor(actorId)));
 
+        DemandPlanningCycle updated = recorded.getPlanningCycle();
         Demand demand = updated.getDemand();
         return new DemandDecisionInfo(
                 demand.getId(),
@@ -229,43 +237,19 @@ public class CommitteeDecisionService {
                 demand.getTitle(),
                 previousStatus,
                 updated.getStatus(),
-                req.decision(),
-                req.condition(),
-                req.justification(),
-                updated.getDecisionAt(),
-                updated.getDecisionBy());
-    }
-
-    private String decoratedJustification(String decision, BulkDeliberationRequest req) {
-        String base = switch (decision) {
-            case "APPROVED" -> "Demanda aprovada em deliberação de mesa";
-            case "CONDITIONALLY_APPROVE" -> "Demanda aprovada condicionalmente em deliberação de mesa";
-            case "REVISION_REQUESTED" -> "Solicitada revisão em deliberação de mesa";
-            case "BACKLOG" -> "Demanda movida para backlog em deliberação de mesa";
-            default -> "Deliberação de mesa: " + decision;
-        };
-
-        if (req.condition() != null && !req.condition().isBlank()) {
-            base += " - Condição: " + req.condition();
-        }
-
-        if (req.justification() != null && !req.justification().isBlank()) {
-            base += " - Justificação: " + req.justification();
-        }
-
-        return base;
+                recorded.getDecision().name(),
+                recorded.getConditions(),
+                recorded.getJustification(),
+                recorded.getDecisionAt(),
+                recorded.getDecidedBy());
     }
 
     private boolean isInScenario(DemandPlanningCycle cycle) {
         return cycle.getStatus() == APPROVED || cycle.getStatus() == CONDITIONALLY_APPROVED;
     }
 
-    private boolean isDeliberated(DemandPlanningCycle cycle) {
-        return cycle.getCommitteeDecision() != null && !cycle.getCommitteeDecision().isBlank();
-    }
-
-    private boolean isPendingDecision(DemandPlanningCycle cycle) {
-        return ELIGIBLE_STATUSES.contains(cycle.getStatus()) && !isDeliberated(cycle);
+    private boolean isPendingDecision(DemandPlanningCycle cycle, Set<UUID> decidedCycleIds) {
+        return ELIGIBLE_STATUSES.contains(cycle.getStatus()) && !decidedCycleIds.contains(cycle.getId());
     }
 
     private CapacityCalculation capacity(List<DemandProfileRequirement> requirements) {

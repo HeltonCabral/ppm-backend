@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import java.net.URI;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -46,6 +47,21 @@ public class StrategicPlanController extends AbstractCrudController<StrategicPla
     @GetMapping("/planning")
     public StrategicPlan planning() {
         return plans.getCurrentPlanningPlan();
+    }
+
+    @GetMapping("/active")
+    public StrategicPlan active() {
+        return plans.getActivePlan();
+    }
+
+    @GetMapping("/{id}/summary")
+    public Map<String, Object> summary(@PathVariable UUID id) {
+        return plans.summary(id);
+    }
+
+    @GetMapping("/{id}/dependencies")
+    public Map<String, Long> dependencies(@PathVariable UUID id) {
+        return plans.dependencyCounts(id);
     }
 
     @PostMapping("/start-planning")

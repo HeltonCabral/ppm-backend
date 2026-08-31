@@ -166,7 +166,9 @@ public class ProjectService {
         if (p.getCode() == null) p.setCode(nextCode());
         p.setOrigin(ProjectOrigin.DEMAND);
         p.setSourceDemand(demand);
-        p.setStatus(ProjectStatus.PLANNED);
+        // Demandas enviadas para backlog geram sempre projetos em BACKLOG, nunca em PLANNED.
+        if (Boolean.TRUE.equals(p.getCreatedFromDemandBacklog())) p.setStatus(ProjectStatus.BACKLOG);
+        else if (p.getStatus() == null) p.setStatus(ProjectStatus.PLANNED);
         p.setExecutionRank(cycle.getPortfolioRank());
         p.setSourceDemandPortfolioRank(cycle.getPortfolioRank());
         if (p.getBudget() == null) p.setBudget(demand.getEstimatedBudget());

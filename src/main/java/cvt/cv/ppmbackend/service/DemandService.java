@@ -1,9 +1,13 @@
 package cvt.cv.ppmbackend.service;
 
 import cvt.cv.ppmbackend.dto.DemandDtos.*;
+import cvt.cv.ppmbackend.dto.DemandCommitteeDecisionDtos;
+import cvt.cv.ppmbackend.dto.DemandCommitteeDecisionDtos.DecisionCommand;
+import cvt.cv.ppmbackend.dto.DemandDependencyDtos;
 import cvt.cv.ppmbackend.dto.DemandPlanningCycleDtos;
 import cvt.cv.ppmbackend.dto.CommitteeSuggestionResponse;
 import cvt.cv.ppmbackend.entity.*;
+import cvt.cv.ppmbackend.enums.CommitteeDecision;
 import cvt.cv.ppmbackend.enums.CommitteeStatus;
 import cvt.cv.ppmbackend.enums.DemandNature;
 import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
@@ -51,6 +55,7 @@ public class DemandService {
     private final DemandSuccessCriterionService successCriteria;
     private final SupplierRepository supplierRepository;
     private final DemandPlanningCycleService planningCycleService;
+    private final DemandDependencyService dependencyService;
 
     public DemandService(DemandRepository demands, DemandPlanningCycleRepository planningCycles,
             DemandAttachmentRepository attachments, DemandHistoryRepository history,
@@ -62,7 +67,8 @@ public class DemandService {
             DemandScoringService scoringService, DemandScoreLifecycleService scoreLifecycle,
             DemandProfileRequirementService profileRequirements,
             DemandSuccessCriterionService successCriteria,
-            SupplierRepository supplierRepository, DemandPlanningCycleService planningCycleService) {
+            SupplierRepository supplierRepository, DemandPlanningCycleService planningCycleService,
+            DemandDependencyService dependencyService) {
         this.demands = demands;
         this.planningCycles = planningCycles;
         this.attachments = attachments;
@@ -82,6 +88,7 @@ public class DemandService {
         this.successCriteria = successCriteria;
         this.supplierRepository = supplierRepository;
         this.planningCycleService = planningCycleService;
+        this.dependencyService = dependencyService;
     }
 
     public DemandResponse create(Create req, String actorId) {
@@ -294,51 +301,47 @@ public class DemandService {
     }
 
     @Transactional
-    public DemandResponse approveDecision(UUID id, UUID strategicPlanId, String actorId) {
-        return decide(id, strategicPlanId, "APPROVED", null, null, actorId);
+    public DemandResponse approveDecision(UUID id, UUID strategicPlanId, ApproveRequest req, String actorId) {
+        return decide(id, strategicPlanId, CommitteeDecision.APPROVED,
+                req == null ? null : req.justification(), null,
+                req == null ? null : req.meetingReference(), actorId);
     }
 
     @Transactional
     public DemandResponse conditionallyApprove(UUID id, UUID strategicPlanId, ConditionallyApproveRequest req,
             String actorId) {
-        return decide(id, strategicPlanId, "CONDITIONALLY_APPROVE", req.condition(), req.justification(), actorId);
+        return decide(id, strategicPlanId, CommitteeDecision.CONDITIONALLY_APPROVED, req.justification(),
+                req.condition(), req.meetingReference(), actorId);
     }
 
     @Transactional
     public DemandResponse requestRevision(UUID id, UUID strategicPlanId, RequestRevisionRequest req, String actorId) {
-        return decide(id, strategicPlanId, "REVISION_REQUESTED", null, req.justification(), actorId);
+        return decide(id, strategicPlanId, CommitteeDecision.REQUEST_REVISION, req.justification(), null,
+                req.meetingReference(), actorId);
     }
 
     @Transactional
     public DemandResponse moveToBacklog(UUID id, UUID strategicPlanId, BacklogRequest req, String actorId) {
-        return decide(id, strategicPlanId, "BACKLOG", null, req.justification(), actorId);
+        return decide(id, strategicPlanId, CommitteeDecision.BACKLOG, req.justification(), null,
+                req.meetingReference(), actorId);
     }
 
-    private DemandResponse decide(UUID id, UUID strategicPlanId, String decision, String condition,
-            String justification, String actorId) {
+    @Transactional
+    public List<DemandCommitteeDecisionDtos.Response> committeeDecisions(UUID id, UUID strategicPlanId) {
+        entity(id);
+        DemandPlanningCycle cycle = planningCycleService.resolveForMutation(id, strategicPlanId);
+        return planningCycleService.decisionHistory(cycle.getId());
+    }
+
+    private DemandResponse decide(UUID id, UUID strategicPlanId, CommitteeDecision decision, String justification,
+            String conditions, String meetingReference, String actorId) {
         Demand demand = entity(id);
         DemandPlanningCycle cycle = planningCycleService.resolveForMutation(id, strategicPlanId);
-        planningCycleService.applyCommitteeDecision(cycle, decision, decoratedJustification(decision, condition, justification),
-                actor(actorId), actor(actorId));
+        planningCycleService.applyCommitteeDecision(cycle, new DecisionCommand(decision, justification, conditions,
+                meetingReference, actor(actorId), actor(actorId)));
         return map(demand);
     }
 
-    private String decoratedJustification(String decision, String condition, String justification) {
-        String base = switch (decision) {
-            case "APPROVED" -> "Demanda aprovada";
-            case "CONDITIONALLY_APPROVE" -> "Demanda aprovada condicionalmente";
-            case "REVISION_REQUESTED" -> "Solicitada revisão";
-            case "BACKLOG" -> "Demanda movida para backlog";
-            default -> "Decisão: " + decision;
-        };
-        if (condition != null && !condition.isBlank()) {
-            base += " - Condição: " + condition;
-        }
-        if (justification != null && !justification.isBlank()) {
-            base += " - Justificação: " + justification;
-        }
-        return base;
-    }
 
     @Transactional
     public DemandAttachmentResponse addAttachment(UUID demandId, AttachmentCreate req, String actorId) {
@@ -462,9 +465,13 @@ public class DemandService {
 
     @Transactional
     public PagedDemandsResponse list(int page, int size, String sort, String search, List<DemandPlanningStatus> status,
-            String type, String origin, String urgency, UUID strategicPlanId,
+            String type, String origin, String urgency, DemandNature nature,
+            UUID committeeId, BigDecimal scoreMin, BigDecimal scoreMax, UUID strategicPlanId,
             UUID operationalPlanId, UUID strategicPillarId, UUID strategicObjectiveId, UUID programId,
-            String requester, String businessArea, LocalDate createdFrom, LocalDate createdTo) {
+            String requester, String businessArea, String directionCode, LocalDate createdFrom, LocalDate createdTo) {
+        if (scoreMin != null && scoreMax != null && scoreMin.compareTo(scoreMax) > 0) {
+            throw new BadRequestException("scoreMin não pode ser maior que scoreMax");
+        }
         String sortField = sort == null || sort.isBlank() ? "createdAt" : sort;
         Specification<Demand> spec = (root, query, cb) -> cb.isNull(root.get("deletedAt"));
         if (search != null && !search.isBlank()) {
@@ -486,10 +493,14 @@ public class DemandService {
             spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("origin")), norm(origin)));
         if (urgency != null)
             spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("urgency")), norm(urgency)));
+        if (nature != null)
+            spec = spec.and((r, q, cb) -> cb.equal(r.get("nature"), nature));
         if (requester != null)
             spec = spec.and((r, q, cb) -> cb.like(cb.lower(r.get("requester")), "%" + requester.toLowerCase() + "%"));
         if (businessArea != null)
             spec = spec.and((r, q, cb) -> cb.like(cb.lower(r.get("areaName")), "%" + businessArea.toLowerCase() + "%"));
+        if (directionCode != null && !directionCode.isBlank())
+            spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("directionCode")), norm(directionCode)));
         if (createdFrom != null) {
             Instant from = createdFrom.atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
             spec = spec.and((r, q, cb) -> cb.greaterThanOrEqualTo(r.get("createdAt"), from));
@@ -500,7 +511,8 @@ public class DemandService {
         }
 
         boolean cycleFiltered = strategicPlanId != null || operationalPlanId != null || strategicPillarId != null
-                || strategicObjectiveId != null || programId != null || (status != null && !status.isEmpty());
+                || strategicObjectiveId != null || programId != null || committeeId != null
+                || scoreMin != null || scoreMax != null || (status != null && !status.isEmpty());
         if (cycleFiltered) {
             Specification<DemandPlanningCycle> cycleSpec = (root, query, cb) -> cb.conjunction();
             if (strategicPlanId != null)
@@ -514,6 +526,13 @@ public class DemandService {
                         .and((r, q, cb) -> cb.equal(r.get("strategicObjective").get("id"), strategicObjectiveId));
             if (programId != null)
                 cycleSpec = cycleSpec.and((r, q, cb) -> cb.equal(r.get("program").get("id"), programId));
+            if (committeeId != null)
+                cycleSpec = cycleSpec
+                        .and((r, q, cb) -> cb.equal(r.get("responsibleCommittee").get("id"), committeeId));
+            if (scoreMin != null)
+                cycleSpec = cycleSpec.and((r, q, cb) -> cb.greaterThanOrEqualTo(r.get("scoreTotal"), scoreMin));
+            if (scoreMax != null)
+                cycleSpec = cycleSpec.and((r, q, cb) -> cb.lessThanOrEqualTo(r.get("scoreTotal"), scoreMax));
             if (status != null && !status.isEmpty())
                 cycleSpec = cycleSpec.and((r, q, cb) -> r.get("status").in(status));
             Set<UUID> matchingDemandIds = planningCycles.findAll(cycleSpec).stream()
@@ -570,9 +589,9 @@ public class DemandService {
                 c.isInStrategicCommittee(), c.getStrategicCommitteeAt(),
                 c.getScoreTotal(), c.getScoreStatus(), c.getScoreCalculatedAt(), c.getScoreInvalidatedAt(),
                 c.getScoreInvalidationReason(), scoreLifecycle.previousScoreSnapshot(c), c.getPortfolioRank(),
-                c.getDirectionRank(), c.getCommitteeRank(), c.getCapacityStatus(), c.getRiskStatus(),
-                c.getApprovalType(), c.getCommitteeDecision(), c.getRejectionReason(), c.getDecisionAt(),
-                c.getDecisionBy(), c.getReprioritizationReason(), c.getReprioritizationJustification(),
+                c.getDirectionRank(), c.getCommitteeRank(), c.getRankBeforeBacklog(), c.getCapacityStatus(), c.getRiskStatus(),
+                planningCycleService.decisionHistory(c.getId()),
+                c.getReprioritizationReason(), c.getReprioritizationJustification(),
                 c.getReprioritizedAt(), c.getReprioritizedBy(), c.isCarriedOver(),
                 c.getPreviousCycle() != null ? c.getPreviousCycle().getId() : null, c.getCycleEntryAt(),
                 c.getConvertedProject() != null ? c.getConvertedProject().getId() : null,
@@ -613,6 +632,13 @@ public class DemandService {
                 committee.isStrategicCommittee());
     }
 
+    private CommitteeDecision latestDecisionOf(DemandPlanningCycle cycle) {
+        return planningCycleService.decisionHistory(cycle.getId()).stream()
+                .findFirst()
+                .map(DemandCommitteeDecisionDtos.Response::decision)
+                .orElse(null);
+    }
+
     @Transactional
     public List<DemandPlanningCycleDtos.PlanningHistoryItem> planningHistory(UUID id) {
         entity(id);
@@ -620,7 +646,7 @@ public class DemandService {
                 .map(c -> new DemandPlanningCycleDtos.PlanningHistoryItem(
                         c.getStrategicPlan().getStartYear(), c.getStrategicPlan().getName(),
                         c.getOperationalPlan().getName(), c.getStatus(), c.getScoreTotal(), c.getPortfolioRank(),
-                        c.getCommitteeDecision(), c.isCarriedOver()))
+                        latestDecisionOf(c), c.isCarriedOver()))
                 .toList();
     }
 
@@ -655,6 +681,7 @@ public class DemandService {
         d.setEasyVistaRef(req.easyVistaRef());
         syncSuppliers(d, req.supplierIds());
         d.setDomain(req.domainId() == null ? null : lookups.findById(req.domainId()));
+        d.setBudgetLine(req.budgetLineId() == null ? null : lookups.findById(req.budgetLineId()));
         d.setImpactedSystem(req.impactedSystem());
         d.setCurrentEvidence(req.currentEvidence());
         d.setProblemStatement(req.problemStatement());
@@ -663,6 +690,7 @@ public class DemandService {
         d.setUrgency(req.urgency() == null ? null : norm(req.urgency()));
         d.setEstimatedBudget(req.estimatedBudget());
         d.setDesiredDate(req.desiredDate());
+        d.setMandatoryDeadline(req.mandatoryDeadline());
         d.setNotes(req.notes());
         d.setRisksIdentified(req.risksIdentified());
         d.setDependenciesIdentified(req.dependenciesIdentified());
@@ -713,8 +741,10 @@ public class DemandService {
         List<DemandProfileRequirementResponse> profileRequirementResponses = profileRequirements.list(d.getId());
         String typeCode = d.getType() != null ? d.getType().getCode() : null;
         String domainCode = d.getDomain() != null ? d.getDomain().getCode() : null;
+        String budgetLineCode = d.getBudgetLine() != null ? d.getBudgetLine().getCode() : null;
         LookupValueSummary typeData = mapLookupValue(d.getType());
         LookupValueSummary domainData = mapLookupValue(d.getDomain());
+        LookupValueSummary budgetLineData = mapLookupValue(d.getBudgetLine());
         Optional<DemandPlanningCycle> currentPlanningCycle = planningCycleService.getCurrentPlanningCycle(d.getId());
         DemandPlanningCycleDtos.Response currentCycle = currentPlanningCycle.map(this::mapCycle).orElse(null);
         StrategicPillarSummary strategicPillar = currentPlanningCycle.map(DemandPlanningCycle::getStrategicPillar)
@@ -728,20 +758,21 @@ public class DemandService {
                 .map(this::mapSupplier)
                 .toList();
         List<DemandSuccessCriterionResponse> successCriteriaResponses = successCriteria.list(d.getId());
+        List<DemandDependencyDtos.Response> dependencyResponses = dependencyService.listByDemand(d.getId());
         return new DemandResponse(d.getId(), d.getCode(), d.getTitle(), strategicPillar, strategicElement,
                 strategicObjective, d.getSummary(), d.getRequester(), d.getAreaName(),
             d.getAreaCode(), d.getDirectionName(), d.getDirectionCode(), d.getDirectionParticipationType(), d.getNature(), d.getSponsor(), d.getTypeId(), typeCode, d.getOrigin(), d.getEasyVistaRef(),
-                d.getDomainId(), domainCode, d.getImpactedSystem(),
+                d.getDomainId(), domainCode, d.getBudgetLineId(), budgetLineCode, d.getImpactedSystem(),
                 d.getCurrentEvidence(), d.getProblemStatement(),
-                d.getDesiredOutcome(), d.getProposedResponse(), d.getUrgency(), d.getEstimatedBudget(), d.getDesiredDate(), d.getNotes(),
+                d.getDesiredOutcome(), d.getProposedResponse(), d.getUrgency(), d.getEstimatedBudget(), d.getDesiredDate(), d.getMandatoryDeadline(), d.getNotes(),
                 d.getRisksIdentified(),
                 d.getDependenciesIdentified(), d.getDirectionsCount(), d.getProfilesCount(), d.getTotalResources(),
                 d.getDependenciesCount(), d.getComplexityScore(), d.getComplexity(), d.getEstimatedDurationMonths(),
                 d.getPlannedStartDate(),
                 d.getCreatedAt(), d.getCreatedBy(), d.getUpdatedAt(), d.getUpdatedBy(),
-                d.getVersion(), typeData, domainData, currentCycle,
+                d.getVersion(), typeData, domainData, budgetLineData, currentCycle,
                 att, participatingDirs, profileRequirementResponses,
-                supplierSummaries, successCriteriaResponses);
+                supplierSummaries, successCriteriaResponses, dependencyResponses);
     }
 
     private SupplierSummary mapSupplier(Supplier supplier) {
@@ -1004,6 +1035,7 @@ public class DemandService {
                 p.easyVistaRef() != null ? p.easyVistaRef() : d.getEasyVistaRef(),
                 p.supplierIds(),
                 p.domainId() != null ? p.domainId() : d.getDomainId(),
+                p.budgetLineId() != null ? p.budgetLineId() : d.getBudgetLineId(),
                 p.impactedSystem() != null ? p.impactedSystem() : d.getImpactedSystem(),
                 p.currentEvidence() != null ? p.currentEvidence() : d.getCurrentEvidence(),
                 p.problemStatement() != null ? p.problemStatement() : d.getProblemStatement(),
@@ -1012,6 +1044,7 @@ public class DemandService {
                 p.urgency() != null ? p.urgency() : d.getUrgency(),
                 p.estimatedBudget() != null ? p.estimatedBudget() : d.getEstimatedBudget(),
                 p.desiredDate() != null ? p.desiredDate() : d.getDesiredDate(),
+                p.mandatoryDeadline() != null ? p.mandatoryDeadline() : d.getMandatoryDeadline(),
                 p.notes() != null ? p.notes() : d.getNotes(),
                 p.risksIdentified() != null ? p.risksIdentified() : d.getRisksIdentified(),
                 p.dependenciesIdentified() != null ? p.dependenciesIdentified() : d.getDependenciesIdentified(),
@@ -1024,9 +1057,9 @@ public class DemandService {
 
     private Create toCreate(Update u) {
         return new Create(u.title(), null, null, null, u.summary(), u.requester(), u.areaName(), u.areaCode(), u.directionName(), u.directionCode(), u.directionParticipationType(), u.nature(), u.sponsor(), u.typeId(),
-                u.origin(), u.easyVistaRef(), u.supplierIds(), u.domainId(), u.impactedSystem(), u.currentEvidence(),
+                u.origin(), u.easyVistaRef(), u.supplierIds(), u.domainId(), u.budgetLineId(), u.impactedSystem(), u.currentEvidence(),
                 u.problemStatement(), u.desiredOutcome(), u.proposedResponse(), u.urgency(), u.estimatedBudget(),
-                u.desiredDate(), u.notes(), u.risksIdentified(),
+                u.desiredDate(), u.mandatoryDeadline(), u.notes(), u.risksIdentified(),
                 u.dependenciesIdentified(), u.dependenciesCount(),
                 null, u.participatingDirections(), u.profileRequirements(), u.successCriteria());
     }

@@ -12,6 +12,8 @@ import org.hibernate.annotations.UpdateTimestamp;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "demand_planning_cycles", uniqueConstraints = {
@@ -100,26 +102,19 @@ public class DemandPlanningCycle extends BaseEntity {
     @Column(name = "committee_rank")
     private Integer committeeRank;
 
+    @Column(name = "rank_before_backlog")
+    private Integer rankBeforeBacklog;
+
     @Column(name = "capacity_status", length = 40)
     private String capacityStatus;
 
     @Column(name = "risk_status", length = 40)
     private String riskStatus;
 
-    @Column(name = "approval_type", length = 40)
-    private String approvalType;
-
-    @Column(name = "committee_decision", length = 60)
-    private String committeeDecision;
-
-    @Column(name = "rejection_reason", columnDefinition = "TEXT")
-    private String rejectionReason;
-
-    @Column(name = "decision_at")
-    private Instant decisionAt;
-
-    @Column(name = "decision_by", length = 150)
-    private String decisionBy;
+    @OneToMany(mappedBy = "planningCycle", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("decisionAt DESC")
+    @JsonIgnore
+    private List<DemandCommitteeDecision> committeeDecisions = new ArrayList<>();
 
     @Column(name = "reprioritization_reason", length = 80)
     private String reprioritizationReason;

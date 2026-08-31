@@ -36,6 +36,11 @@ public class DemandDependencyService {
     @Transactional(readOnly = true)
     public List<Response> list(UUID demandId) {
         requireDemand(demandId);
+        return listByDemand(demandId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Response> listByDemand(UUID demandId) {
         return dependencies.findByDemand_IdOrderByCreatedAtAsc(demandId).stream()
                 .map(this::response)
                 .toList();

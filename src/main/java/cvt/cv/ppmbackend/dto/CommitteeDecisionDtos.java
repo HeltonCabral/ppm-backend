@@ -29,7 +29,8 @@ public final class CommitteeDecisionDtos {
             @Valid @NotNull BulkDeliberationFilters filters,
             @NotBlank @Size(max = 60) String decision,
             @Size(max = 10000) String condition,
-            @Size(max = 10000) String justification) {
+            @Size(max = 10000) String justification,
+            @Size(max = 200) String meetingReference) {
     }
 
     public record DemandDecisionInfo(

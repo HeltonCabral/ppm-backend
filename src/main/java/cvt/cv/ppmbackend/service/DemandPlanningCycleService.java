@@ -1,29 +1,38 @@
 package cvt.cv.ppmbackend.service;
 
+import cvt.cv.ppmbackend.dto.DemandCommitteeDecisionDtos;
+import cvt.cv.ppmbackend.dto.DemandCommitteeDecisionDtos.DecisionCommand;
 import cvt.cv.ppmbackend.entity.Committee;
+import cvt.cv.ppmbackend.entity.DemandCommitteeDecision;
 import cvt.cv.ppmbackend.entity.Demand;
 import cvt.cv.ppmbackend.entity.DemandPlanningCycle;
 import cvt.cv.ppmbackend.entity.OperationalPlan;
 import cvt.cv.ppmbackend.entity.Program;
 import cvt.cv.ppmbackend.entity.Project;
 import cvt.cv.ppmbackend.entity.StrategicPlan;
+import cvt.cv.ppmbackend.enums.CommitteeDecision;
 import cvt.cv.ppmbackend.enums.CommitteeStatus;
 import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import cvt.cv.ppmbackend.exception.BadRequestException;
 import cvt.cv.ppmbackend.exception.DomainException;
 import cvt.cv.ppmbackend.exception.ResourceNotFoundException;
+import cvt.cv.ppmbackend.repository.DemandCommitteeDecisionRepository;
 import cvt.cv.ppmbackend.repository.DemandPlanningCycleRepository;
 import cvt.cv.ppmbackend.repository.OperationalPlanRepository;
 import cvt.cv.ppmbackend.repository.ProgramRepository;
 import cvt.cv.ppmbackend.repository.StrategicElementRepository;
 import cvt.cv.ppmbackend.repository.StrategicObjectiveRepository;
 import cvt.cv.ppmbackend.repository.StrategicPillarRepository;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -50,10 +59,12 @@ public class DemandPlanningCycleService {
         TRANSITIONS.put(CLOSED, Set.of());
     }
 
-    private static final Set<String> VALID_COMMITTEE_DECISIONS = Set.of(
-            "APPROVED", "CONDITIONALLY_APPROVE", "REVISION_REQUESTED", "BACKLOG");
+    private static final Set<CommitteeDecision> REQUIRE_JUSTIFICATION = Set.of(
+            CommitteeDecision.CONDITIONALLY_APPROVED, CommitteeDecision.REQUEST_REVISION,
+            CommitteeDecision.BACKLOG);
 
     private final DemandPlanningCycleRepository cycles;
+    private final DemandCommitteeDecisionRepository decisions;
     private final StrategicPlanService strategicPlans;
     private final OperationalPlanRepository operationalPlans;
     private final StrategicPillarRepository strategicPillars;
@@ -63,12 +74,14 @@ public class DemandPlanningCycleService {
     private final DemandScoreLifecycleService scoreLifecycle;
     private final DemandHistoryService historyService;
 
-    public DemandPlanningCycleService(DemandPlanningCycleRepository cycles, StrategicPlanService strategicPlans,
+    public DemandPlanningCycleService(DemandPlanningCycleRepository cycles, DemandCommitteeDecisionRepository decisions,
+            StrategicPlanService strategicPlans,
             OperationalPlanRepository operationalPlans, StrategicPillarRepository strategicPillars,
             StrategicElementRepository strategicElements, StrategicObjectiveRepository strategicObjectives,
             ProgramRepository programs,
             DemandScoreLifecycleService scoreLifecycle, DemandHistoryService historyService) {
         this.cycles = cycles;
+        this.decisions = decisions;
         this.strategicPlans = strategicPlans;
         this.operationalPlans = operationalPlans;
         this.strategicPillars = strategicPillars;
@@ -198,42 +211,130 @@ public class DemandPlanningCycleService {
         return saved;
     }
 
-    public DemandPlanningCycle applyCommitteeDecision(DemandPlanningCycle cycle, String decision, String justification,
-            String actorId, String actorName) {
-        String normalized = decision == null ? "" : decision.trim().toUpperCase();
-        if (!VALID_COMMITTEE_DECISIONS.contains(normalized)) {
-            throw new BadRequestException("Decisão de comité inválida: " + decision);
+    /**
+     * Regista uma nova deliberação do Comité e atualiza o status do ciclo em conformidade.
+     * As decisões anteriores nunca são sobrescritas — cada deliberação gera um novo
+     * {@link DemandCommitteeDecision}, que é a fonte da verdade do histórico.
+     */
+    public DemandCommitteeDecision applyCommitteeDecision(DemandPlanningCycle cycle, DecisionCommand command) {
+        CommitteeDecision decision = command.decision();
+        if (decision == null) {
+            throw new BadRequestException("Decisão de comité inválida");
         }
+        String justification = trimToNull(command.justification());
+        String conditions = trimToNull(command.conditions());
+        if (justification == null && REQUIRE_JUSTIFICATION.contains(decision)) {
+            throw new BadRequestException("justification é obrigatória para a decisão " + decision);
+        }
+
         DemandPlanningStatus from = cycle.getStatus();
-        switch (normalized) {
-            case "APPROVED" -> {
-                transitionStatus(cycle, APPROVED, null, actorId);
-                cycle.setCommitteeDecision("APPROVED");
-                cycle.setApprovalType("NORMAL");
-            }
-            case "CONDITIONALLY_APPROVE" -> {
-                transitionStatus(cycle, CONDITIONALLY_APPROVED, null, actorId);
-                cycle.setCommitteeDecision("CONDITIONALLY_APPROVED");
-                cycle.setApprovalType("CONDITIONAL");
-            }
-            case "REVISION_REQUESTED" -> {
-                transitionStatus(cycle, IN_ANALYSIS, justification, actorId);
-                cycle.setCommitteeDecision("REVISION_REQUESTED");
-                cycle.setRejectionReason(justification);
-            }
-            case "BACKLOG" -> {
-                transitionStatus(cycle, BACKLOG, justification, actorId);
-                cycle.setCommitteeDecision("BACKLOG");
-            }
-            default -> throw new BadRequestException("Decisão de comité inválida: " + decision);
+        DemandPlanningStatus target = targetStatusOf(decision);
+        Integer rankBeforeBacklog = cycle.getPortfolioRank();
+
+        transitionStatus(cycle, target, justification, command.actorId());
+
+        if (decision == CommitteeDecision.BACKLOG) {
+            cycle.setRankBeforeBacklog(rankBeforeBacklog);
+            cycle.setPortfolioRank(null);
+            normalizePortfolioRanks(cycle.getStrategicPlan().getId(), cycle.getId());
         }
         cycle.setInStrategicCommittee(false);
-        cycle.setDecisionAt(Instant.now());
-        cycle.setDecisionBy(actorName);
         DemandPlanningCycle saved = cycles.save(cycle);
-        historyService.log(cycle.getDemand(), "COMMITTEE_DECISION_" + normalized, from.name(), cycle.getStatus().name(),
-                justification, actorId, actorName, Map.of("decision", normalized));
-        return saved;
+
+        DemandCommitteeDecision record = new DemandCommitteeDecision();
+        record.setPlanningCycle(saved);
+        record.setCommittee(cycle.getResponsibleCommittee());
+        record.setDecision(decision);
+        record.setJustification(justification);
+        record.setConditions(conditions);
+        record.setDecisionAt(Instant.now());
+        record.setDecidedBy(actorOrSystem(command.actorName(), command.actorId()));
+        record.setMeetingReference(trimToNull(command.meetingReference()));
+        DemandCommitteeDecision savedDecision = decisions.save(record);
+        saved.getCommitteeDecisions().add(savedDecision);
+
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("decision", decision.name());
+        metadata.put("decisionId", savedDecision.getId().toString());
+        if (conditions != null) {
+            metadata.put("conditions", conditions);
+        }
+        if (savedDecision.getMeetingReference() != null) {
+            metadata.put("meetingReference", savedDecision.getMeetingReference());
+        }
+        if (decision == CommitteeDecision.BACKLOG && saved.getRankBeforeBacklog() != null) {
+            metadata.put("rankBeforeBacklog", String.valueOf(saved.getRankBeforeBacklog()));
+        }
+        historyService.log(cycle.getDemand(), "COMMITTEE_DECISION_" + decision.name(), from.name(),
+                saved.getStatus().name(), justification, command.actorId(), command.actorName(), metadata);
+        return savedDecision;
+    }
+
+    @Transactional(readOnly = true)
+    public List<DemandCommitteeDecisionDtos.Response> decisionHistory(UUID planningCycleId) {
+        return decisions.findByPlanningCycle_IdOrderByDecisionAtDesc(planningCycleId).stream()
+                .map(DemandPlanningCycleService::mapDecision)
+                .toList();
+    }
+
+    public static DemandCommitteeDecisionDtos.Response mapDecision(DemandCommitteeDecision decision) {
+        Committee committee = decision.getCommittee();
+        return new DemandCommitteeDecisionDtos.Response(
+                decision.getId(),
+                decision.getPlanningCycle().getId(),
+                decision.getPlanningCycle().getDemand().getId(),
+                committee == null ? null : committee.getId(),
+                committee == null ? null : committee.getName(),
+                decision.getDecision(),
+                decision.getJustification(),
+                decision.getConditions(),
+                decision.getDecisionAt(),
+                decision.getDecidedBy(),
+                decision.getMeetingReference(),
+                decision.getCreatedAt());
+    }
+
+    private DemandPlanningStatus targetStatusOf(CommitteeDecision decision) {
+        return switch (decision) {
+            case APPROVED -> APPROVED;
+            case CONDITIONALLY_APPROVED -> CONDITIONALLY_APPROVED;
+            case REQUEST_REVISION -> IN_ANALYSIS;
+            case BACKLOG -> BACKLOG;
+        };
+    }
+
+    private static String trimToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static String actorOrSystem(String actorName, String actorId) {
+        String resolved = trimToNull(actorName) != null ? trimToNull(actorName) : trimToNull(actorId);
+        return resolved == null ? "system" : resolved;
+    }
+
+
+    /**
+     * Renumera de forma contígua (1..n) o ranking de portfólio das Demandas que permanecem
+     * no cenário ativo do Plano Estratégico, preservando a ordem relativa existente.
+     * Apenas ciclos APPROVED e CONDITIONALLY_APPROVED integram o ranking ativo.
+     */
+    public void normalizePortfolioRanks(UUID strategicPlanId, UUID excludedCycleId) {
+        Specification<DemandPlanningCycle> spec = (root, query, cb) -> cb.and(
+                cb.equal(root.get("strategicPlan").get("id"), strategicPlanId),
+                root.get("status").in(APPROVED, CONDITIONALLY_APPROVED),
+                cb.isNotNull(root.get("portfolioRank")));
+
+        List<DemandPlanningCycle> ranked = new ArrayList<>(cycles.findAll(spec));
+        if (excludedCycleId != null) {
+            ranked.removeIf(c -> excludedCycleId.equals(c.getId()));
+        }
+        ranked.sort(Comparator.comparingInt(DemandPlanningCycle::getPortfolioRank));
+
+        int rank = 1;
+        for (DemandPlanningCycle c : ranked) {
+            c.setPortfolioRank(rank++);
+        }
+        cycles.saveAll(ranked);
     }
 
     public DemandPlanningCycle convertToProject(DemandPlanningCycle cycle, Project project, String actorId) {

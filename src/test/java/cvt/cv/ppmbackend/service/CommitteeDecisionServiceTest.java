@@ -10,6 +10,7 @@ import cvt.cv.ppmbackend.entity.StrategicPlan;
 import cvt.cv.ppmbackend.enums.DemandDependencyType;
 import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import cvt.cv.ppmbackend.enums.StrategicPlanStatus;
+import cvt.cv.ppmbackend.repository.DemandCommitteeDecisionRepository;
 import cvt.cv.ppmbackend.repository.DemandDependencyRepository;
 import cvt.cv.ppmbackend.repository.DemandPlanningCycleRepository;
 import cvt.cv.ppmbackend.repository.DemandProfileRequirementRepository;
@@ -23,6 +24,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -41,13 +43,15 @@ class CommitteeDecisionServiceTest {
     private DemandProfileRequirementRepository profileRequirements;
     @Mock
     private DemandDependencyRepository dependencies;
+    @Mock
+    private DemandCommitteeDecisionRepository decisions;
 
     private CommitteeDecisionService service;
 
     @BeforeEach
     void setUp() {
         service = new CommitteeDecisionService(
-                planningCycles, planningCycleService, strategicPlans, profileRequirements, dependencies);
+                planningCycles, planningCycleService, strategicPlans, profileRequirements, dependencies, decisions);
     }
 
     @Test
@@ -60,10 +64,10 @@ class CommitteeDecisionServiceTest {
         plan.setEndYear(2028);
         plan.setStatus(StrategicPlanStatus.CONDITIONALLY_APPROVED);
 
-        DemandPlanningCycle approved = cycle(DemandPlanningStatus.APPROVED, "APPROVED", "100.00");
-        DemandPlanningCycle conditional = cycle(DemandPlanningStatus.CONDITIONALLY_APPROVED, "CONDITIONALLY_APPROVED", "50.00");
-        DemandPlanningCycle pending = cycle(DemandPlanningStatus.IN_PRIORITIZATION, null, "25.00");
-        DemandPlanningCycle revision = cycle(DemandPlanningStatus.IN_ANALYSIS, "REVISION_REQUESTED", "10.00");
+        DemandPlanningCycle approved = cycle(DemandPlanningStatus.APPROVED, "100.00");
+        DemandPlanningCycle conditional = cycle(DemandPlanningStatus.CONDITIONALLY_APPROVED, "50.00");
+        DemandPlanningCycle pending = cycle(DemandPlanningStatus.IN_PRIORITIZATION, "25.00");
+        DemandPlanningCycle revision = cycle(DemandPlanningStatus.IN_ANALYSIS, "10.00");
 
         Profile profile = new Profile();
         profile.setId(UUID.randomUUID());
@@ -85,6 +89,8 @@ class CommitteeDecisionServiceTest {
                 .thenReturn(List.of(firstRequirement, secondRequirement));
         when(dependencies.findByDemand_IdIn(org.mockito.ArgumentMatchers.anyCollection()))
                 .thenReturn(List.of(dependency));
+        when(decisions.findDecidedCycleIdsByStrategicPlan(planId))
+                .thenReturn(Set.of(approved.getId(), conditional.getId(), revision.getId()));
 
         DecisionDashboardResponse result = service.dashboard(planId);
 
@@ -106,7 +112,7 @@ class CommitteeDecisionServiceTest {
                 .containsExactly("CAPACITY_DEFICIT", "BLOCKING_DEPENDENCIES", "OPEN_CONDITIONS");
     }
 
-    private DemandPlanningCycle cycle(DemandPlanningStatus status, String committeeDecision, String budget) {
+    private DemandPlanningCycle cycle(DemandPlanningStatus status, String budget) {
         Demand demand = new Demand();
         demand.setId(UUID.randomUUID());
         demand.setEstimatedBudget(new BigDecimal(budget));
@@ -115,7 +121,6 @@ class CommitteeDecisionServiceTest {
         cycle.setId(UUID.randomUUID());
         cycle.setDemand(demand);
         cycle.setStatus(status);
-        cycle.setCommitteeDecision(committeeDecision);
         return cycle;
     }
 

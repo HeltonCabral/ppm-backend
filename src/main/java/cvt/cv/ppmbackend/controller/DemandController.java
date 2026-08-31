@@ -9,14 +9,19 @@ import cvt.cv.ppmbackend.dto.DemandScoringDtos.UpsertRequest;
 import cvt.cv.ppmbackend.dto.CommitteeSuggestionResponse;
 import cvt.cv.ppmbackend.dto.ComplexityConfigDtos.DemandComplexityResponse;
 import cvt.cv.ppmbackend.dto.DemandCapacityAnalysisDtos.CapacityAnalysisResponse;
+import cvt.cv.ppmbackend.dto.DemandCommitteeDashboardDtos.CommitteeDashboardResponse;
+import cvt.cv.ppmbackend.dto.DemandCommitteeDecisionDtos;
+import cvt.cv.ppmbackend.enums.DemandNature;
 import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import cvt.cv.ppmbackend.service.DemandCapacityAnalysisService;
+import cvt.cv.ppmbackend.service.DemandCommitteeDashboardService;
 import cvt.cv.ppmbackend.service.DemandComplexityService;
 import cvt.cv.ppmbackend.service.DemandScoringService;
 import cvt.cv.ppmbackend.service.DemandService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -28,13 +33,15 @@ public class DemandController {
     private final DemandScoringService scoring;
     private final DemandComplexityService complexity;
     private final DemandCapacityAnalysisService capacityAnalysis;
+    private final DemandCommitteeDashboardService committeeDashboard;
 
     public DemandController(DemandService demands, DemandScoringService scoring, DemandComplexityService complexity,
-            DemandCapacityAnalysisService capacityAnalysis) {
+            DemandCapacityAnalysisService capacityAnalysis, DemandCommitteeDashboardService committeeDashboard) {
         this.demands = demands;
         this.scoring = scoring;
         this.complexity = complexity;
         this.capacityAnalysis = capacityAnalysis;
+        this.committeeDashboard = committeeDashboard;
     }
 
     private String actor(String header) {
@@ -58,6 +65,10 @@ public class DemandController {
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String origin,
             @RequestParam(required = false) String urgency,
+            @RequestParam(required = false) DemandNature nature,
+            @RequestParam(required = false) UUID committeeId,
+            @RequestParam(required = false) BigDecimal scoreMin,
+            @RequestParam(required = false) BigDecimal scoreMax,
             @RequestParam(required = false) UUID strategicPlanId,
             @RequestParam(required = false) UUID operationalPlanId,
             @RequestParam(required = false) UUID strategicPillarId,
@@ -65,11 +76,18 @@ public class DemandController {
             @RequestParam(required = false) UUID programId,
             @RequestParam(required = false) String requester,
             @RequestParam(required = false) String businessArea,
+            @RequestParam(required = false) String directionCode,
             @RequestParam(required = false) LocalDate createdFrom,
             @RequestParam(required = false) LocalDate createdTo) {
-        return demands.list(page, size, sort, search, status, type, origin, urgency,
+        return demands.list(page, size, sort, search, status, type, origin, urgency, nature,
+                committeeId, scoreMin, scoreMax,
                 strategicPlanId, operationalPlanId, strategicPillarId, strategicObjectiveId, programId,
-                requester, businessArea, createdFrom, createdTo);
+                requester, businessArea, directionCode, createdFrom, createdTo);
+    }
+
+    @GetMapping("/strategic-plans/{strategicPlanId}/committee-dashboard")
+    public CommitteeDashboardResponse getCommitteeDashboard(@PathVariable UUID strategicPlanId) {
+        return committeeDashboard.dashboard(strategicPlanId);
     }
 
     @GetMapping("/portfolio-ranking")
@@ -126,8 +144,15 @@ public class DemandController {
 
     @PostMapping("/{id}/planning-cycles/{strategicPlanId}/approve")
     public DemandResponse approve(@PathVariable UUID id, @PathVariable UUID strategicPlanId,
+            @Valid @RequestBody(required = false) ApproveRequest req,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
-        return demands.approveDecision(id, strategicPlanId, actor(user));
+        return demands.approveDecision(id, strategicPlanId, req, actor(user));
+    }
+
+    @GetMapping("/{id}/planning-cycles/{strategicPlanId}/committee-decisions")
+    public List<DemandCommitteeDecisionDtos.Response> committeeDecisions(@PathVariable UUID id,
+            @PathVariable UUID strategicPlanId) {
+        return demands.committeeDecisions(id, strategicPlanId);
     }
 
     @PostMapping("/{id}/planning-cycles/{strategicPlanId}/conditionally-approve")

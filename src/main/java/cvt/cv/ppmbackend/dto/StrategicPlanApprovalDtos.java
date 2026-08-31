@@ -21,8 +21,13 @@ public interface StrategicPlanApprovalDtos {
     record FinalApprovalResponse(
             UUID strategicPlanId,
             StrategicPlanStatus status,
+            int convertedToProjects,
+            int convertedToPrograms,
+            int projectsCreated,
+            int programsCreated,
             int alreadyConverted,
             int movedToBacklog,
+            int backlogProjectsCreated,
             List<String> errors
     ) {}
 }
