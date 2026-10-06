@@ -33,9 +33,11 @@ import static cvt.cv.ppmbackend.enums.DemandPlanningStatus.*;
 public class StrategicPlanService extends AbstractCrudService<StrategicPlan, StrategicPlanCreateRequest> {
     private static final List<StrategicPlanStatus> PLANNING_STATUSES = List.of(
             StrategicPlanStatus.DRAFT, StrategicPlanStatus.CONDITIONALLY_APPROVED, StrategicPlanStatus.APPROVED);
-    private static final List<DemandPlanningStatus> APPROVED_CYCLE_STATUSES = List.of(APPROVED, CONDITIONALLY_APPROVED);
+    /** Demandas selecionadas pelo cenário final — as que geram projetos ao aprovar o plano. */
+    private static final List<DemandPlanningStatus> APPROVED_CYCLE_STATUSES = List.of(IN_PLAN);
+    /** Tudo o que não entrou no plano gera projeto em backlog. */
     private static final List<DemandPlanningStatus> BACKLOG_CYCLE_STATUSES = List.of(DRAFT, IN_ANALYSIS,
-            IN_PRIORITIZATION, AWAITING_COMMITTEE, BACKLOG);
+            IN_REVIEW, IN_PRIORITIZATION, PRIORITIZED, BACKLOG);
 
     private final StrategicPlanRepository plans;
     private final DemandPlanningCycleRepository planningCycles;
@@ -265,10 +267,10 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
     private PlanningProgress progressOf(UUID planId) {
         List<DemandPlanningCycle> planCycles = planningCycles.findAllByStrategicPlan_Id(planId);
         long total = planCycles.size();
-        long approved = planCycles.stream().filter(c -> c.getStatus() == APPROVED).count();
-        long conditionallyApproved = planCycles.stream().filter(c -> c.getStatus() == CONDITIONALLY_APPROVED).count();
+        long approved = planCycles.stream().filter(c -> c.getStatus() == IN_PLAN).count();
+        long conditionallyApproved = planCycles.stream().filter(c -> c.getStatus() == IN_REVIEW).count();
         long backlog = planCycles.stream().filter(c -> c.getStatus() == BACKLOG).count();
-        long deliberated = approved + conditionallyApproved + backlog;
+        long deliberated = approved + backlog;
         long pending = total - deliberated;
         int deliberationPercentage = total == 0 ? 0 : (int) Math.round(deliberated * 100.0 / total);
         long projectsGenerated = projectRepository.countByStrategicPlan_Id(planId);
@@ -390,7 +392,7 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
 
                     // Log history
                     historyService.log(demand, "DEMAND_CONVERTED_TO_PROJECT_BY_" + approvalMode + "_PLAN_APPROVAL",
-                            APPROVED.name(), CONVERTED_TO_PROJECT.name(),
+                            IN_PLAN.name(), IN_PLAN.name(),
                             "Demanda convertida em Projeto pela aprovação " + approvalDescription
                                     + " do Plano Estratégico",
                             actorId, actorName, Map.of("projectId", project.getId().toString()));
@@ -414,7 +416,7 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
 
                     // Log history
                     historyService.log(demand, "DEMAND_CONVERTED_TO_PROGRAM_BY_" + approvalMode + "_PLAN_APPROVAL",
-                            APPROVED.name(), CONVERTED_TO_PROGRAM.name(),
+                            IN_PLAN.name(), IN_PLAN.name(),
                             "Demanda convertida em Programa pela aprovação " + approvalDescription
                                     + " do Plano Estratégico",
                             actorId, actorName, Map.of("programId", program.getId().toString(),
@@ -486,15 +488,18 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
                 Project savedProject = projects.saveFromDemand(
                         backlogProject, demand, cycle, null, null, null, null, null, actorId);
 
-                convertCycleToProject(cycle, savedProject, actorId,
-                        "Demanda convertida em projeto de backlog pela aprovação final do Plano Estratégico");
                 if (previousStatus != BACKLOG) {
+                    scoreLifecycle.applyStatusTransition(cycle, previousStatus, BACKLOG,
+                            "Demanda não selecionada pelo cenário final do Plano Estratégico");
+                    cycle.setStatus(BACKLOG);
                     movedToBacklog++;
                 }
+                convertCycleToProject(cycle, savedProject, actorId,
+                        "Demanda convertida em projeto de backlog pela aprovação final do Plano Estratégico");
                 backlogProjectsCreated++;
 
                 historyService.log(demand, "DEMAND_CONVERTED_TO_PROJECT_BACKLOG_BY_FINAL_PLAN_APPROVAL",
-                        previousStatus.name(), CONVERTED_TO_PROJECT.name(),
+                        previousStatus.name(), BACKLOG.name(),
                         "Demanda enviada para o backlog de projetos na aprovação final do Plano Estratégico.",
                         actorId, actorName, Map.of("projectId", savedProject.getId().toString(),
                                 "projectStatus", ProjectStatus.BACKLOG.name()));
@@ -537,23 +542,21 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
         convertCycleToProject(cycle, project, actorId, "Demanda convertida em projeto");
     }
 
+    /**
+     * A conversão não altera o status do ciclo — esse é decidido pelo cenário final. O que marca
+     * a Demanda como convertida é a ligação ao projeto/programa gerado.
+     */
     private void convertCycleToProject(DemandPlanningCycle cycle, Project project, String actorId, String reason) {
-        DemandPlanningStatus from = cycle.getStatus();
         cycle.setConvertedProject(project);
         cycle.setConvertedAt(Instant.now());
         cycle.setConvertedBy(actorId);
-        scoreLifecycle.applyStatusTransition(cycle, from, CONVERTED_TO_PROJECT, reason);
-        cycle.setStatus(CONVERTED_TO_PROJECT);
         planningCycles.save(cycle);
     }
 
     private void convertCycleToProgram(DemandPlanningCycle cycle, Program program, String actorId) {
-        DemandPlanningStatus from = cycle.getStatus();
         cycle.setConvertedProgram(program);
         cycle.setConvertedAt(Instant.now());
         cycle.setConvertedBy(actorId);
-        scoreLifecycle.applyStatusTransition(cycle, from, CONVERTED_TO_PROGRAM, "Demanda convertida em programa");
-        cycle.setStatus(CONVERTED_TO_PROGRAM);
         planningCycles.save(cycle);
     }
 
@@ -592,7 +595,6 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
         project.setStrategicPillar(cycle.getStrategicPillar());
         project.setStrategicObjective(cycle.getStrategicObjective());
         project.setDomain(demand.getDomain());
-        project.setProjectType(demand.getType());
         project.setEstimatedBudget(demand.getEstimatedBudget());
         project.setDirectionName(direction.getDirectionName());
         project.setDirectionCode(direction.getDirectionCode());
@@ -630,7 +632,6 @@ public class StrategicPlanService extends AbstractCrudService<StrategicPlan, Str
         project.setStrategicPillar(cycle.getStrategicPillar());
         project.setStrategicObjective(cycle.getStrategicObjective());
         project.setDomain(demand.getDomain());
-        project.setProjectType(demand.getType());
         project.setBusinessArea(demand.getAreaName());
         project.setDirectionName(directionName);
         project.setDirectionCode(directionCode);

@@ -71,8 +71,8 @@ public class Demand extends BaseEntity {
     private String sponsor;
 
     @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "type_id", nullable = false)
-    private LookupValue type;
+    @JoinColumn(name = "type_id", nullable = true)
+    private PhaseModel  type;
 
     @Column(nullable = false, length = 80)
     private String origin = "MANUAL";

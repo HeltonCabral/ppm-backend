@@ -3,16 +3,25 @@ package cvt.cv.ppmbackend.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import cvt.cv.ppmbackend.dto.DemandPlanningCycleDtos.ScoreHistoryEntry;
 import cvt.cv.ppmbackend.entity.DemandPlanningCycle;
+import cvt.cv.ppmbackend.entity.DemandPlanningCycleScoreHistory;
+import cvt.cv.ppmbackend.entity.DemandScoring;
 import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import cvt.cv.ppmbackend.exception.DomainException;
+import cvt.cv.ppmbackend.repository.DemandPlanningCycleScoreHistoryRepository;
+import cvt.cv.ppmbackend.repository.DemandScoringRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 import static cvt.cv.ppmbackend.enums.DemandPlanningStatus.*;
 
@@ -24,23 +33,29 @@ public class DemandScoreLifecycleService {
     public static final String SCORE_INVALID = "Invalidado";
 
     private static final Set<DemandPlanningStatus> SCORING_ELIGIBLE_STATUSES = Set.of(
-            IN_ANALYSIS, IN_PRIORITIZATION, AWAITING_COMMITTEE);
+            IN_ANALYSIS, IN_PRIORITIZATION, PRIORITIZED);
     private static final Map<DemandPlanningStatus, Integer> WORKFLOW_ORDER = Map.of(
             IN_ANALYSIS, 0,
             IN_PRIORITIZATION, 1,
-            AWAITING_COMMITTEE, 2);
+            PRIORITIZED, 2);
 
     private final ObjectMapper objectMapper;
+    private final DemandScoringRepository scoring;
+    private final DemandPlanningCycleScoreHistoryRepository scoreHistory;
 
-    public DemandScoreLifecycleService(ObjectMapper objectMapper) {
+    public DemandScoreLifecycleService(ObjectMapper objectMapper,
+            DemandScoringRepository scoring,
+            DemandPlanningCycleScoreHistoryRepository scoreHistory) {
         this.objectMapper = objectMapper;
+        this.scoring = scoring;
+        this.scoreHistory = scoreHistory;
     }
 
     public void validateCanScore(DemandPlanningCycle cycle) {
         DemandPlanningStatus status = cycle.getStatus();
-        if (status == APPROVED || status == CONDITIONALLY_APPROVED) {
-            throw domain("APPROVED_DEMAND_SCORE_RECALCULATION_NOT_ALLOWED",
-                    "Uma demanda aprovada não pode ter o score recalculado", status);
+        if (status == IN_PLAN) {
+            throw domain("IN_PLAN_DEMAND_SCORE_RECALCULATION_NOT_ALLOWED",
+                    "Uma Demanda já incluída no plano não pode ter o score recalculado", status);
         }
         if (!SCORING_ELIGIBLE_STATUSES.contains(status)) {
             throw domain("DEMAND_NOT_ELIGIBLE_FOR_SCORING",
@@ -48,10 +63,10 @@ public class DemandScoreLifecycleService {
         }
     }
 
-    public void validateCanApprove(DemandPlanningCycle cycle) {
+    public void validateCanEnterPlan(DemandPlanningCycle cycle) {
         if (!isValid(cycle)) {
-            throw domain("APPROVAL_REQUIRES_VALID_SCORE",
-                    "A demanda só pode ser aprovada com um score válido", cycle.getStatus());
+            throw domain("IN_PLAN_REQUIRES_VALID_SCORE",
+                    "A Demanda só pode entrar no plano com um score válido", cycle.getStatus());
         }
     }
 
@@ -65,20 +80,16 @@ public class DemandScoreLifecycleService {
 
     public void applyStatusTransition(DemandPlanningCycle cycle, DemandPlanningStatus from, DemandPlanningStatus to,
             String reason) {
-        if (to == APPROVED || to == CONDITIONALLY_APPROVED) {
-            validateCanApprove(cycle);
+        if (to == IN_PLAN) {
+            validateCanEnterPlan(cycle);
             return;
         }
         if (to == BACKLOG) {
             invalidate(cycle, SCORE_INVALID, reasonOrDefault(reason, "Demanda movida para backlog"));
             return;
         }
-        if (to == CLOSED) {
-            invalidate(cycle, SCORE_INVALID, reasonOrDefault(reason, "Ciclo de planeamento encerrado"));
-            return;
-        }
-        if (to == CONVERTED_TO_PROJECT || to == CONVERTED_TO_PROGRAM) {
-            invalidate(cycle, SCORE_INVALID, "Demanda convertida");
+        if (to == IN_REVIEW) {
+            invalidate(cycle, SCORE_INVALID, reasonOrDefault(reason, "Score invalidado por pedido de revisão"));
             return;
         }
 
@@ -124,28 +135,76 @@ public class DemandScoreLifecycleService {
             return;
         }
 
+        Instant invalidatedAt = Instant.now();
         if (cycle.getPreviousScoreSnapshot() == null && cycle.getScoreTotal() != null) {
+            DimensionTotals dimensions = computeDimensionTotals(cycle.getId());
             Map<String, Object> snapshot = new LinkedHashMap<>();
             snapshot.put("scoreTotal", cycle.getScoreTotal());
+            snapshot.put("scoreValue", dimensions.value);
+            snapshot.put("scoreEffort", dimensions.effort);
+            snapshot.put("scoreRisk", dimensions.risk);
             snapshot.put("portfolioRank", cycle.getPortfolioRank());
-            snapshot.put("directionRank", cycle.getDirectionRank());
-            snapshot.put("committeeRank", cycle.getCommitteeRank());
-            snapshot.put("scoreStatus", cycle.getScoreStatus());
-            snapshot.put("scoreCalculatedAt", cycle.getScoreCalculatedAt());
+            snapshot.put("calculatedAt", cycle.getScoreCalculatedAt());
             try {
                 cycle.setPreviousScoreSnapshot(objectMapper.writeValueAsString(snapshot));
             } catch (JsonProcessingException e) {
                 throw new IllegalStateException("Não foi possível persistir o snapshot do score", e);
             }
+
+            DemandPlanningCycleScoreHistory history = new DemandPlanningCycleScoreHistory();
+            history.setPlanningCycle(cycle);
+            history.setScoreTotal(cycle.getScoreTotal());
+            history.setScoreValue(dimensions.value);
+            history.setScoreEffort(dimensions.effort);
+            history.setScoreRisk(dimensions.risk);
+            history.setPortfolioRank(cycle.getPortfolioRank());
+            history.setDirectionRank(cycle.getDirectionRank());
+            history.setCommitteeRank(cycle.getCommitteeRank());
+            history.setCalculatedAt(cycle.getScoreCalculatedAt());
+            history.setInvalidatedAt(invalidatedAt);
+            history.setInvalidationReason(reason);
+            scoreHistory.save(history);
         }
 
         cycle.setScoreTotal(null);
         cycle.setPortfolioRank(null);
         cycle.setDirectionRank(null);
         cycle.setCommitteeRank(null);
-        cycle.setScoreInvalidatedAt(Instant.now());
+        cycle.setScoreInvalidatedAt(invalidatedAt);
         cycle.setScoreInvalidationReason(reason);
         cycle.setScoreStatus(targetScoreStatus);
+    }
+
+    public List<ScoreHistoryEntry> listHistory(UUID cycleId) {
+        return scoreHistory.findByPlanningCycle_IdOrderByInvalidatedAtDesc(cycleId).stream()
+                .map(h -> new ScoreHistoryEntry(h.getScoreTotal(), h.getScoreValue(), h.getScoreEffort(),
+                        h.getScoreRisk(), h.getPortfolioRank(), h.getCalculatedAt(),
+                        h.getInvalidatedAt(), h.getInvalidationReason()))
+                .toList();
+    }
+
+    private DimensionTotals computeDimensionTotals(UUID cycleId) {
+        BigDecimal value = null;
+        BigDecimal effort = null;
+        BigDecimal risk = null;
+        List<DemandScoring> items = scoring.findByPlanningCycle_IdOrderByCriterionOrderIndexAsc(cycleId);
+        Map<String, BigDecimal> totals = new LinkedHashMap<>();
+        for (DemandScoring item : items) {
+            var dimension = item.getCriterion() == null ? null : item.getCriterion().getDimension();
+            String code = dimension == null ? null : dimension.getCode();
+            if (code == null || code.isBlank() || item.getWeightedScore() == null) {
+                continue;
+            }
+            String key = code.trim().toUpperCase(Locale.ROOT);
+            totals.merge(key, item.getWeightedScore(), BigDecimal::add);
+        }
+        if (totals.containsKey("VALUE")) value = totals.get("VALUE");
+        if (totals.containsKey("EFFORT")) effort = totals.get("EFFORT");
+        if (totals.containsKey("RISK")) risk = totals.get("RISK");
+        return new DimensionTotals(value, effort, risk);
+    }
+
+    private record DimensionTotals(BigDecimal value, BigDecimal effort, BigDecimal risk) {
     }
 
     private String reasonOrDefault(String reason, String fallback) {

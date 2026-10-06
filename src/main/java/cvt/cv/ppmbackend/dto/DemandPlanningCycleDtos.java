@@ -8,7 +8,7 @@ import cvt.cv.ppmbackend.dto.DemandDtos.StrategicElementSummary;
 import cvt.cv.ppmbackend.dto.DemandDtos.StrategicObjectiveSummary;
 import cvt.cv.ppmbackend.dto.DemandDtos.StrategicPillarSummary;
 import cvt.cv.ppmbackend.dto.DemandDtos.StrategicPlanSummary;
-import cvt.cv.ppmbackend.enums.CommitteeDecision;
+import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -59,7 +59,7 @@ public final class DemandPlanningCycleDtos {
             Integer rankBeforeBacklog,
             String capacityStatus,
             String riskStatus,
-            List<DemandCommitteeDecisionDtos.Response> committeeDecisions,
+            List<DemandCommitteeActionDtos.Response> committeeActions,
             String reprioritizationReason,
             String reprioritizationJustification,
             Instant reprioritizedAt,
@@ -73,7 +73,8 @@ public final class DemandPlanningCycleDtos {
             String convertedBy,
             Instant createdAt,
             Instant updatedAt,
-            Long version) {
+            Long version,
+            List<ScoreHistoryEntry> scoreHistory) {
     }
 
     public record PlanningHistoryItem(
@@ -83,7 +84,18 @@ public final class DemandPlanningCycleDtos {
             DemandPlanningStatus status,
             BigDecimal score,
             Integer portfolioRank,
-            CommitteeDecision committeeDecision,
+            boolean underReview,
             boolean carriedOver) {
+    }
+
+    public record ScoreHistoryEntry(
+            BigDecimal scoreTotal,
+            BigDecimal scoreValue,
+            BigDecimal scoreEffort,
+            BigDecimal scoreRisk,
+            Integer portfolioRank,
+            Instant calculatedAt,
+            Instant invalidatedAt,
+            String invalidationReason) {
     }
 }

@@ -57,6 +57,7 @@ public final class DemandScoringDtos {
             Instant scoreInvalidatedAt,
             String scoreInvalidationReason,
             JsonNode previousScoreSnapshot,
-            List<DimensionScoreResponse> dimensionTotals) {
+            List<DimensionScoreResponse> dimensionTotals,
+            List<DemandPlanningCycleDtos.ScoreHistoryEntry> scoreHistory) {
     }
 }

@@ -3,17 +3,16 @@ package cvt.cv.ppmbackend.service;
 import cvt.cv.ppmbackend.dto.CommitteeDecisionDtos.DecisionDashboardResponse;
 import cvt.cv.ppmbackend.entity.Demand;
 import cvt.cv.ppmbackend.entity.DemandDependency;
-import cvt.cv.ppmbackend.entity.DemandPlanningCycle;
 import cvt.cv.ppmbackend.entity.DemandProfileRequirement;
+import cvt.cv.ppmbackend.entity.DemandPlanningCycle;
 import cvt.cv.ppmbackend.entity.Profile;
 import cvt.cv.ppmbackend.entity.StrategicPlan;
 import cvt.cv.ppmbackend.enums.DemandDependencyType;
 import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import cvt.cv.ppmbackend.enums.StrategicPlanStatus;
-import cvt.cv.ppmbackend.repository.DemandCommitteeDecisionRepository;
 import cvt.cv.ppmbackend.repository.DemandDependencyRepository;
-import cvt.cv.ppmbackend.repository.DemandPlanningCycleRepository;
 import cvt.cv.ppmbackend.repository.DemandProfileRequirementRepository;
+import cvt.cv.ppmbackend.repository.DemandPlanningCycleRepository;
 import cvt.cv.ppmbackend.repository.StrategicPlanRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,7 +23,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -36,22 +34,18 @@ class CommitteeDecisionServiceTest {
     @Mock
     private DemandPlanningCycleRepository planningCycles;
     @Mock
-    private DemandPlanningCycleService planningCycleService;
-    @Mock
     private StrategicPlanRepository strategicPlans;
     @Mock
     private DemandProfileRequirementRepository profileRequirements;
     @Mock
     private DemandDependencyRepository dependencies;
-    @Mock
-    private DemandCommitteeDecisionRepository decisions;
 
     private CommitteeDecisionService service;
 
     @BeforeEach
     void setUp() {
         service = new CommitteeDecisionService(
-                planningCycles, planningCycleService, strategicPlans, profileRequirements, dependencies, decisions);
+                planningCycles, strategicPlans, profileRequirements, dependencies);
     }
 
     @Test
@@ -64,17 +58,17 @@ class CommitteeDecisionServiceTest {
         plan.setEndYear(2028);
         plan.setStatus(StrategicPlanStatus.CONDITIONALLY_APPROVED);
 
-        DemandPlanningCycle approved = cycle(DemandPlanningStatus.APPROVED, "100.00");
-        DemandPlanningCycle conditional = cycle(DemandPlanningStatus.CONDITIONALLY_APPROVED, "50.00");
-        DemandPlanningCycle pending = cycle(DemandPlanningStatus.IN_PRIORITIZATION, "25.00");
-        DemandPlanningCycle revision = cycle(DemandPlanningStatus.IN_ANALYSIS, "10.00");
+        DemandPlanningCycle approved = cycle(DemandPlanningStatus.IN_PLAN, "100.00");
+        DemandPlanningCycle conditional = cycle(DemandPlanningStatus.IN_PLAN, "50.00");
+        DemandPlanningCycle pending = cycle(DemandPlanningStatus.PRIORITIZED, "25.00");
+        DemandPlanningCycle revision = cycle(DemandPlanningStatus.IN_REVIEW, "10.00");
 
         Profile profile = new Profile();
         profile.setId(UUID.randomUUID());
         profile.setName("Backend");
         profile.setAvailableCapacity(1);
-        DemandProfileRequirement firstRequirement = requirement(approved.getDemand(), profile, 2, 100);
-        DemandProfileRequirement secondRequirement = requirement(conditional.getDemand(), profile, 1, 50);
+        DemandProfileRequirement firstRequirement = requirement(approved.getDemand(), profile, 2);
+        DemandProfileRequirement secondRequirement = requirement(conditional.getDemand(), profile, 1);
 
         DemandDependency dependency = new DemandDependency();
         dependency.setId(UUID.randomUUID());
@@ -89,22 +83,20 @@ class CommitteeDecisionServiceTest {
                 .thenReturn(List.of(firstRequirement, secondRequirement));
         when(dependencies.findByDemand_IdIn(org.mockito.ArgumentMatchers.anyCollection()))
                 .thenReturn(List.of(dependency));
-        when(decisions.findDecidedCycleIdsByStrategicPlan(planId))
-                .thenReturn(Set.of(approved.getId(), conditional.getId(), revision.getId()));
 
         DecisionDashboardResponse result = service.dashboard(planId);
 
-        assertThat(result.plan().deliberatedDemands()).isEqualTo(3);
+        assertThat(result.plan().deliberatedDemands()).isEqualTo(2);
         assertThat(result.plan().totalDemands()).isEqualTo(4);
-        assertThat(result.plan().deliberationPercentage()).isEqualTo(75);
+        assertThat(result.plan().deliberationPercentage()).isEqualTo(50);
         assertThat(result.scenario().demandsCount()).isEqualTo(2);
         assertThat(result.scenario().requiredBudget()).isEqualByComparingTo("150.00");
         assertThat(result.scenario().pendingDecisions()).isEqualTo(1);
         assertThat(result.scenario().openConditions()).isEqualTo(1);
         assertThat(result.overview().totalBudget()).isEqualByComparingTo("25.00");
-        assertThat(result.overview().capacity().required()).isEqualByComparingTo("2.50");
+        assertThat(result.overview().capacity().required()).isEqualByComparingTo("3.00");
         assertThat(result.overview().capacity().available()).isEqualByComparingTo("1.00");
-        assertThat(result.overview().capacity().coveragePercentage()).isEqualByComparingTo("40.00");
+        assertThat(result.overview().capacity().coveragePercentage()).isEqualByComparingTo("33.33");
         assertThat(result.overview().deficitProfiles()).isEqualTo(1);
         assertThat(result.overview().blockedDemands()).isEqualTo(1);
         assertThat(result.overview().criticalDependencies()).isEqualTo(1);
@@ -124,14 +116,12 @@ class CommitteeDecisionServiceTest {
         return cycle;
     }
 
-    private DemandProfileRequirement requirement(
-            Demand demand, Profile profile, int quantity, int percentage) {
+    private DemandProfileRequirement requirement(Demand demand, Profile profile, int quantity) {
         DemandProfileRequirement requirement = new DemandProfileRequirement();
         requirement.setId(UUID.randomUUID());
         requirement.setDemand(demand);
         requirement.setProfile(profile);
         requirement.setRequiredQuantity(quantity);
-        requirement.setAllocationPercentage(percentage);
         return requirement;
     }
 }

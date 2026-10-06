@@ -1,7 +1,5 @@
 package cvt.cv.ppmbackend.controller;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import cvt.cv.ppmbackend.dto.DemandDtos.*;
 import cvt.cv.ppmbackend.dto.DemandPlanningCycleDtos;
 import cvt.cv.ppmbackend.dto.DemandPlanningCycleDtos.EnrichmentRequest;
@@ -12,9 +10,8 @@ import cvt.cv.ppmbackend.dto.CommitteeSuggestionResponse;
 import cvt.cv.ppmbackend.dto.ComplexityConfigDtos.DemandComplexityResponse;
 import cvt.cv.ppmbackend.dto.DemandCapacityAnalysisDtos.CapacityAnalysisResponse;
 import cvt.cv.ppmbackend.dto.DemandCommitteeDashboardDtos.CommitteeDashboardResponse;
-import cvt.cv.ppmbackend.dto.DemandCommitteeDecisionDtos;
+import cvt.cv.ppmbackend.dto.DemandCommitteeActionDtos;
 import cvt.cv.ppmbackend.enums.DemandNature;
-import cvt.cv.ppmbackend.exception.BadRequestException;
 import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import cvt.cv.ppmbackend.service.DemandCapacityAnalysisService;
 import cvt.cv.ppmbackend.service.DemandCommitteeDashboardService;
@@ -37,17 +34,14 @@ public class DemandController {
     private final DemandComplexityService complexity;
     private final DemandCapacityAnalysisService capacityAnalysis;
     private final DemandCommitteeDashboardService committeeDashboard;
-    private final ObjectMapper objectMapper;
 
     public DemandController(DemandService demands, DemandScoringService scoring, DemandComplexityService complexity,
-            DemandCapacityAnalysisService capacityAnalysis, DemandCommitteeDashboardService committeeDashboard,
-            ObjectMapper objectMapper) {
+            DemandCapacityAnalysisService capacityAnalysis, DemandCommitteeDashboardService committeeDashboard) {
         this.demands = demands;
         this.scoring = scoring;
         this.complexity = complexity;
         this.capacityAnalysis = capacityAnalysis;
         this.committeeDashboard = committeeDashboard;
-        this.objectMapper = objectMapper;
     }
 
     private String actor(String header) {
@@ -59,6 +53,14 @@ public class DemandController {
     public DemandResponse create(@Valid @RequestBody Create req,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
         return demands.create(req, actor(user));
+    }
+
+    @PostMapping("/{id}/duplicate")
+    @ResponseStatus(HttpStatus.CREATED)
+    public DemandResponse duplicate(@PathVariable UUID id,
+            @Valid @RequestBody(required = false) Duplicate req,
+            @RequestHeader(value = "X-User-Id", required = false) String user) {
+        return demands.duplicate(id, req, actor(user));
     }
 
     @GetMapping
@@ -84,11 +86,12 @@ public class DemandController {
             @RequestParam(required = false) String businessArea,
             @RequestParam(required = false) String directionCode,
             @RequestParam(required = false) LocalDate createdFrom,
-            @RequestParam(required = false) LocalDate createdTo) {
+            @RequestParam(required = false) LocalDate createdTo,
+            @RequestHeader(value = "X-User-Id", required = false) String user) {
         return demands.list(page, size, sort, search, status, type, origin, urgency, nature,
                 committeeId, scoreMin, scoreMax,
                 strategicPlanId, operationalPlanId, strategicPillarId, strategicObjectiveId, programId,
-                requester, businessArea, directionCode, createdFrom, createdTo);
+                requester, businessArea, directionCode, createdFrom, createdTo, actor(user));
     }
 
     @GetMapping("/strategic-plans/{strategicPlanId}/committee-dashboard")
@@ -104,6 +107,14 @@ public class DemandController {
             @RequestParam(required = false) String directionCode,
             @RequestParam(required = false) String areaCode) {
         return demands.listPortfolioRanked(page, size, strategicPlanId, directionCode, areaCode);
+    }
+
+    @GetMapping("/in-review")
+    public PagedDemandsResponse listInReview(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) UUID strategicPlanId) {
+        return demands.listInReview(page, size, strategicPlanId);
     }
 
     @GetMapping("/{id}")
@@ -148,64 +159,29 @@ public class DemandController {
         return demands.assignCommittee(id, strategicPlanId, request, actor(user));
     }
 
-    /**
-     * A aprovação aceita um corpo JSON opcional com justification/meetingReference. O corpo é lido como
-     * texto para que clientes que enviem Content-Type text/plain — ou nenhum — continuem a aprovar.
-     */
-    @PostMapping("/{id}/planning-cycles/{strategicPlanId}/approve")
-    public DemandResponse approve(@PathVariable UUID id, @PathVariable UUID strategicPlanId,
-            @RequestBody(required = false) String body,
-            @RequestHeader(value = "X-User-Id", required = false) String user) {
-        return demands.approveDecision(id, strategicPlanId, parseApproveRequest(body), actor(user));
-    }
-
-    private ApproveRequest parseApproveRequest(String body) {
-        if (body == null || body.isBlank()) {
-            return null;
-        }
-        ApproveRequest req;
-        try {
-            req = objectMapper.readValue(body, ApproveRequest.class);
-        } catch (JsonProcessingException e) {
-            throw new BadRequestException(
-                    "Corpo do pedido inválido: esperado JSON com justification e/ou meetingReference");
-        }
-        if (req.justification() != null && req.justification().length() > 10000) {
-            throw new BadRequestException("justification não pode exceder 10000 caracteres");
-        }
-        if (req.meetingReference() != null && req.meetingReference().length() > 200) {
-            throw new BadRequestException("meetingReference não pode exceder 200 caracteres");
-        }
-        return req;
-    }
-
-    @GetMapping("/{id}/planning-cycles/{strategicPlanId}/committee-decisions")
-    public List<DemandCommitteeDecisionDtos.Response> committeeDecisions(@PathVariable UUID id,
+    @GetMapping("/{id}/planning-cycles/{strategicPlanId}/committee-actions")
+    public List<DemandCommitteeActionDtos.Response> committeeActions(@PathVariable UUID id,
             @PathVariable UUID strategicPlanId) {
-        return demands.committeeDecisions(id, strategicPlanId);
+        return demands.committeeActions(id, strategicPlanId);
     }
 
-    @PostMapping("/{id}/planning-cycles/{strategicPlanId}/conditionally-approve")
-    public DemandResponse conditionallyApprove(@PathVariable UUID id, @PathVariable UUID strategicPlanId,
-            @Valid @RequestBody ConditionallyApproveRequest req,
-            @RequestHeader(value = "X-User-Id", required = false) String user) {
-        return demands.conditionallyApprove(id, strategicPlanId, req, actor(user));
-    }
-
+    /**
+     * Pedido de revisão — disponível a Comités especializados e ao Comité Estratégico.
+     * A aprovação já não é individual: resulta da seleção de um cenário de portfólio.
+     */
     @PostMapping("/{id}/planning-cycles/{strategicPlanId}/request-revision")
     public DemandResponse requestRevision(@PathVariable UUID id, @PathVariable UUID strategicPlanId,
-            @Valid @RequestBody RequestRevisionRequest req,
+            @Valid @RequestBody DemandCommitteeActionDtos.RequestRevisionRequest req,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
         return demands.requestRevision(id, strategicPlanId, req, actor(user));
     }
 
-    @PostMapping("/{id}/planning-cycles/{strategicPlanId}/backlog")
-    public DemandResponse moveToBacklog(@PathVariable UUID id, @PathVariable UUID strategicPlanId,
-            @Valid @RequestBody BacklogRequest req,
+    @PostMapping("/{id}/planning-cycles/{strategicPlanId}/resolve-revision")
+    public DemandResponse resolveRevision(@PathVariable UUID id, @PathVariable UUID strategicPlanId,
+            @RequestBody(required = false) DemandCommitteeActionDtos.ResolveRevisionRequest req,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
-        return demands.moveToBacklog(id, strategicPlanId, req, actor(user));
+        return demands.resolveRevision(id, strategicPlanId, req, actor(user));
     }
-
     @PostMapping("/{id}/planning-cycles/{strategicPlanId}/send-to-strategic-committee")
     public DemandResponse sendToStrategicCommittee(
             @PathVariable UUID id,

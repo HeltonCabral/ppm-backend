@@ -8,10 +8,9 @@ import cvt.cv.ppmbackend.entity.StrategicPlan;
 import cvt.cv.ppmbackend.enums.DemandNature;
 import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import cvt.cv.ppmbackend.enums.StrategicPlanStatus;
-import cvt.cv.ppmbackend.repository.DemandCommitteeDecisionRepository;
 import cvt.cv.ppmbackend.repository.DemandDependencyRepository;
-import cvt.cv.ppmbackend.repository.DemandPlanningCycleRepository;
 import cvt.cv.ppmbackend.repository.DemandProfileRequirementRepository;
+import cvt.cv.ppmbackend.repository.DemandPlanningCycleRepository;
 import cvt.cv.ppmbackend.repository.StrategicPlanRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,19 +39,17 @@ class DemandCommitteeDashboardServiceTest {
     private DemandProfileRequirementRepository profileRequirements;
     @Mock
     private DemandDependencyRepository dependencies;
-    @Mock
-    private DemandCommitteeDecisionRepository decisions;
 
     private DemandCommitteeDashboardService service;
 
     @BeforeEach
     void setUp() {
         service = new DemandCommitteeDashboardService(
-                strategicPlans, planningCycles, profileRequirements, dependencies, decisions);
+                strategicPlans, planningCycles, profileRequirements, dependencies);
     }
 
     @Test
-    void attentionPointsOnlyConsiderDemandsAwaitingCommittee() {
+    void attentionPointsOnlyConsiderPrioritizedDemands() {
         UUID planId = UUID.randomUUID();
         StrategicPlan plan = new StrategicPlan();
         plan.setId(planId);
@@ -61,8 +58,8 @@ class DemandCommitteeDashboardServiceTest {
         plan.setEndYear(2029);
         plan.setStatus(StrategicPlanStatus.DRAFT);
 
-        DemandPlanningCycle approved = cycle(DemandPlanningStatus.APPROVED, DemandNature.REGULATORY);
-        DemandPlanningCycle awaitingCommittee = cycle(DemandPlanningStatus.AWAITING_COMMITTEE, DemandNature.LEGAL);
+        DemandPlanningCycle approved = cycle(DemandPlanningStatus.IN_PLAN, DemandNature.REGULATORY);
+        DemandPlanningCycle awaitingCommittee = cycle(DemandPlanningStatus.PRIORITIZED, DemandNature.LEGAL);
         DemandPlanningCycle draft = cycle(DemandPlanningStatus.DRAFT, DemandNature.CONTRACTUAL);
 
         when(strategicPlans.findById(planId)).thenReturn(Optional.of(plan));
@@ -70,7 +67,6 @@ class DemandCommitteeDashboardServiceTest {
                 .thenReturn(List.of(approved, awaitingCommittee, draft));
         when(profileRequirements.findByDemand_IdIn(org.mockito.ArgumentMatchers.anyCollection()))
                 .thenReturn(List.of());
-        when(decisions.findDecidedCycleIdsByStrategicPlan(planId)).thenReturn(Set.of(approved.getId()));
         when(dependencies.findByDemand_IdIn(org.mockito.ArgumentMatchers.anyCollection()))
                 .thenReturn(List.of());
 

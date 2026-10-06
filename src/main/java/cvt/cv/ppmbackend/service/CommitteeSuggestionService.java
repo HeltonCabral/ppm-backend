@@ -6,6 +6,7 @@ import cvt.cv.ppmbackend.entity.Committee;
 import cvt.cv.ppmbackend.entity.Demand;
 import cvt.cv.ppmbackend.entity.DemandPlanningCycle;
 import cvt.cv.ppmbackend.entity.LookupValue;
+import cvt.cv.ppmbackend.entity.PhaseModel;
 import cvt.cv.ppmbackend.enums.CommitteeStatus;
 import cvt.cv.ppmbackend.repository.CommitteeRepository;
 import org.springframework.stereotype.Service;
@@ -76,10 +77,10 @@ public class CommitteeSuggestionService {
             reasons.add(DIRECTION_REASON);
         }
 
-        LookupValue type = demand.getType();
+        PhaseModel type = demand.getType();
         if (matches(committee.getDemandTypes(),
                 type != null ? type.getCode() : null,
-                type != null ? type.getLabel() : null)) {
+                type != null ? type.getName() : null)) {
             score += 30;
             reasons.add(DEMAND_TYPE_REASON);
         }

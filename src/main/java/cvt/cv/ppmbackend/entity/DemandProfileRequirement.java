@@ -5,21 +5,27 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinTable;
+import jakarta.persistence.ManyToMany;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+
+import java.time.Instant;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 @Entity
-@Table(name = "demand_profile_requirements", uniqueConstraints =
-        @UniqueConstraint(name = "uk_demand_profile_requirements_demand_profile",
-                columnNames = { "demand_id", "profile_id" }))
+@Table(name = "demand_profile_requirements")
 @Getter
 @Setter
 @NoArgsConstructor
 public class DemandProfileRequirement extends BaseEntity {
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "demand_id", nullable = false)
     @JsonIgnore
@@ -32,6 +38,17 @@ public class DemandProfileRequirement extends BaseEntity {
     @Column(name = "required_quantity", nullable = false)
     private Integer requiredQuantity;
 
-    @Column(name = "allocation_percentage", nullable = false)
-    private Integer allocationPercentage;
+    @ManyToMany(fetch = FetchType.EAGER)
+    @JoinTable(name = "demand_profile_requirement_phases",
+            joinColumns = @JoinColumn(name = "requirement_id"),
+            inverseJoinColumns = @JoinColumn(name = "phase_id"))
+    private Set<PhaseDefinition> phases = new LinkedHashSet<>();
+
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt;
+
+    @UpdateTimestamp
+    @Column(name = "updated_at", nullable = false)
+    private Instant updatedAt;
 }

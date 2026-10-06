@@ -2,6 +2,7 @@ package cvt.cv.ppmbackend.dto;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import cvt.cv.ppmbackend.dto.DemandPlanningCycleDtos;
+import cvt.cv.ppmbackend.enums.AreaRole;
 import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import cvt.cv.ppmbackend.enums.DirectionParticipationType;
 import cvt.cv.ppmbackend.enums.DemandComplexity;
@@ -45,6 +46,19 @@ public final class DemandDtos {
                         Integer displayOrder) {
         }
 
+        public record DirectionAreaInput(
+                        @NotBlank @Size(max = 60) String areaCode,
+                        @Size(max = 120) String areaName,
+                        @NotNull AreaRole role) {
+        }
+
+        public record DirectionAreaResponse(
+                        UUID id,
+                        String areaCode,
+                        String areaName,
+                        AreaRole role) {
+        }
+
         public record Create(
                         @NotBlank @Size(max = 250) String title,
                         UUID strategicPillarId,
@@ -59,7 +73,7 @@ public final class DemandDtos {
                         DirectionParticipationType directionParticipationType,
                         DemandNature nature,
                         @Size(max = 150) String sponsor,
-                        @NotNull UUID typeId,
+                        UUID typeId,
                         @Size(max = 80) String origin,
                         @Size(max = 120) String easyVistaRef,
                         Set<UUID> supplierIds,
@@ -81,7 +95,22 @@ public final class DemandDtos {
                         @Valid List<AttachmentInput> attachments,
                         @Valid List<ParticipatingDirectionCreate> participatingDirections,
                         @Valid List<DemandProfileRequirementInput> profileRequirements,
-                        @Valid List<DemandSuccessCriterionInput> successCriteria) {
+                        @Valid List<DemandSuccessCriterionInput> successCriteria,
+                        @Valid List<DirectionAreaInput> areas) {
+        }
+
+        /**
+         * Opções de cópia de uma Demanda. Todos os campos são opcionais: quando
+         * omitidos, o título recebe o prefixo "Cópia de" e todas as coleções da
+         * demanda de origem são copiadas.
+         */
+        public record Duplicate(
+                        @Size(max = 250) String title,
+                        Boolean copyAttachments,
+                        Boolean copyParticipatingDirections,
+                        Boolean copyProfileRequirements,
+                        Boolean copySuccessCriteria,
+                        Boolean copyStrategicFraming) {
         }
 
         public record Update(
@@ -98,7 +127,7 @@ public final class DemandDtos {
                         DirectionParticipationType directionParticipationType,
                         DemandNature nature,
                         @Size(max = 150) String sponsor,
-                        @NotNull UUID typeId,
+                        UUID typeId,
                         @Size(max = 80) String origin,
                         @Size(max = 120) String easyVistaRef,
                         Set<UUID> supplierIds,
@@ -119,7 +148,8 @@ public final class DemandDtos {
                         @PositiveOrZero Integer dependenciesCount,
                         @Valid List<ParticipatingDirectionCreate> participatingDirections,
                         @Valid List<DemandProfileRequirementInput> profileRequirements,
-                        @Valid List<DemandSuccessCriterionInput> successCriteria) {
+                        @Valid List<DemandSuccessCriterionInput> successCriteria,
+                        @Valid List<DirectionAreaInput> areas) {
         }
 
         public record Patch(
@@ -157,34 +187,14 @@ public final class DemandDtos {
                         @PositiveOrZero Integer dependenciesCount,
                         @Valid List<ParticipatingDirectionCreate> participatingDirections,
                         @Valid List<DemandProfileRequirementInput> profileRequirements,
-                        @Valid List<DemandSuccessCriterionInput> successCriteria) {
+                        @Valid List<DemandSuccessCriterionInput> successCriteria,
+                        @Valid List<DirectionAreaInput> areas) {
         }
 
         public record AssignCommitteeRequest(@NotNull UUID committeeId) {
         }
 
         public record SendToStrategicCommitteeRequest(@Size(max = 4000) String reason) {
-        }
-
-        public record ApproveRequest(
-                        @Size(max = 10000) String justification,
-                        @Size(max = 200) String meetingReference) {
-        }
-
-        public record ConditionallyApproveRequest(
-                        @Size(max = 10000) String condition,
-                        @NotBlank @Size(max = 10000) String justification,
-                        @Size(max = 200) String meetingReference) {
-        }
-
-        public record RequestRevisionRequest(
-                        @NotBlank @Size(max = 10000) String justification,
-                        @Size(max = 200) String meetingReference) {
-        }
-
-        public record BacklogRequest(
-                        @NotBlank @Size(max = 10000) String justification,
-                        @Size(max = 200) String meetingReference) {
         }
 
         public record SendToStrategicCommitteeBulkRequest(
@@ -237,6 +247,9 @@ public final class DemandDtos {
         }
 
         public record LookupValueSummary(UUID id, String category, String code, String label) {
+        }
+
+        public record PhaseModelSummary(UUID id, String code, String name, boolean active) {
         }
 
         public record StrategicPlanSummary(UUID id, String name, Integer startYear, Integer endYear, String status) {
@@ -326,7 +339,7 @@ public final class DemandDtos {
                         Instant updatedAt,
                         String updatedBy,
                         Long version,
-                        LookupValueSummary typeData,
+                        PhaseModelSummary typeData,
                         LookupValueSummary domainData,
                         LookupValueSummary budgetLineData,
                         DemandPlanningCycleDtos.Response currentPlanningCycle,
@@ -335,7 +348,8 @@ public final class DemandDtos {
                         List<DemandProfileRequirementResponse> profileRequirements,
                         List<SupplierSummary> suppliers,
                         List<DemandSuccessCriterionResponse> successCriteria,
-                        List<DemandDependencyDtos.Response> dependencies) {
+                        List<DemandDependencyDtos.Response> dependencies,
+                        List<DirectionAreaResponse> areas) {
         }
 
         public record DemandHistoryResponse(
@@ -435,7 +449,8 @@ public final class DemandDtos {
                         @Size(max = 120) String areaName,
                         @Size(max = 60) String areaCode,
                         @NotNull DirectionParticipationType participationType,
-                        @Size(max = 10000) String observations) {
+                        @Size(max = 10000) String observations,
+                        @Valid List<DirectionAreaInput> areas) {
         }
 
         public record ParticipatingDirectionUpdate(
@@ -444,7 +459,8 @@ public final class DemandDtos {
                         @Size(max = 120) String areaName,
                         @Size(max = 60) String areaCode,
                         @NotNull DirectionParticipationType participationType,
-                        @Size(max = 10000) String observations) {
+                        @Size(max = 10000) String observations,
+                        @Valid List<DirectionAreaInput> areas) {
         }
 
         public record ParticipatingDirectionResponse(
@@ -459,13 +475,18 @@ public final class DemandDtos {
                         String createdBy,
                         Instant updatedAt,
                         String updatedBy,
-                        Long version) {
+                        Long version,
+                        List<DirectionAreaResponse> areas) {
         }
 
         public record DemandProfileRequirementInput(
+                        UUID id,
                         @NotNull UUID profileId,
-                        @NotNull @Positive Integer requiredQuantity,
-                        @NotNull Integer allocationPercentage) {
+                        @NotNull @jakarta.validation.constraints.Min(value = 1,
+                                message = "requiredQuantity deve ser maior ou igual a 1.")
+                        Integer requiredQuantity,
+                        @NotEmpty(message = "A lista de fases é obrigatória.")
+                        List<@NotNull(message = "A lista de fases não pode conter valores nulos.") UUID> phaseIds) {
         }
 
         public record DemandProfileRequirementResponse(
@@ -476,6 +497,13 @@ public final class DemandDtos {
                         Integer availableCapacity,
                         boolean profileActive,
                         Integer requiredQuantity,
-                        Integer allocationPercentage) {
+                        List<DemandPhaseRef> phases) {
+        }
+
+        public record DemandPhaseRef(
+                        UUID phaseId,
+                        String phaseCode,
+                        String phaseName,
+                        Integer phaseSequence) {
         }
 }

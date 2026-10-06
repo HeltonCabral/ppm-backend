@@ -1,6 +1,12 @@
 package cvt.cv.ppmbackend.dto;
 
+import cvt.cv.ppmbackend.dto.CapacityDtos.PeriodUtilization;
+import cvt.cv.ppmbackend.dto.DemandDtos.DemandPhaseRef;
+import cvt.cv.ppmbackend.enums.CapacityStatus;
+
+import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.UUID;
 
@@ -9,23 +15,30 @@ public class DemandCapacityAnalysisDtos {
     }
 
     public record CapacityAnalysisResponse(
-            String status,
+            CapacityStatus status,
+            BigDecimal peakUtilization,
+            YearMonth criticalPeriod,
             String mainConflict,
             List<ProfileCapacityAnalysis> profiles) {
     }
 
     public record ProfileCapacityAnalysis(
+            UUID requirementId,
             UUID profileId,
             String profileName,
             String directionCode,
             boolean active,
             Integer requiredQuantity,
-            Integer allocationPercentage,
             Integer availableCapacity,
-            Integer simultaneousLimit,
-            int simultaneousUsed,
-            String situation,
-            List<CompetingDemand> competingDemands) {
+            Integer simultaneousDemandCapacity,
+            CapacityStatus status,
+            BigDecimal peakUtilization,
+            YearMonth criticalPeriod,
+            BigDecimal requiredLoadAtPeak,
+            int simultaneousDemandsAtPeak,
+            List<PeriodUtilization> periods,
+            List<CompetingDemand> competingDemands,
+            List<DemandPhaseRef> phases) {
     }
 
     public record CompetingDemand(
@@ -33,7 +46,6 @@ public class DemandCapacityAnalysisDtos {
             String code,
             String title,
             Integer requiredQuantity,
-            Integer allocationPercentage,
             LocalDate periodStart,
             LocalDate periodEnd) {
     }

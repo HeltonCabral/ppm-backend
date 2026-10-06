@@ -208,11 +208,11 @@ public class OperationalPlanService extends AbstractCrudService<OperationalPlan,
     private Metrics progressOf(UUID operationalPlanId) {
         List<DemandPlanningCycle> cycles = planningCycles.findAllByOperationalPlan_Id(operationalPlanId);
         long total = cycles.size();
-        long approved = cycles.stream().filter(c -> c.getStatus() == DemandPlanningStatus.APPROVED).count();
+        long approved = cycles.stream().filter(c -> c.getStatus() == DemandPlanningStatus.IN_PLAN).count();
         long conditionallyApproved = cycles.stream()
-                .filter(c -> c.getStatus() == DemandPlanningStatus.CONDITIONALLY_APPROVED).count();
+                .filter(c -> c.getStatus() == DemandPlanningStatus.IN_REVIEW).count();
         long backlog = cycles.stream().filter(c -> c.getStatus() == DemandPlanningStatus.BACKLOG).count();
-        long deliberated = approved + conditionallyApproved + backlog;
+        long deliberated = approved + backlog;
         long pending = total - deliberated;
         int deliberationPercentage = total == 0 ? 0 : (int) Math.round(deliberated * 100.0 / total);
         long projectsGenerated = projects.countByOperationalPlan(operationalPlanId);
