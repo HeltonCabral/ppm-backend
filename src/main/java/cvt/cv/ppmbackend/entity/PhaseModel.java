@@ -42,6 +42,10 @@ public class PhaseModel extends BaseEntity {
     @OrderBy("sequence ASC")
     private List<PhaseDefinition> phases = new ArrayList<>();
 
+    @OneToMany(mappedBy = "phaseModel", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @OrderBy("directionCode ASC")
+    private List<PhaseModelDirection> applicableDirections = new ArrayList<>();
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

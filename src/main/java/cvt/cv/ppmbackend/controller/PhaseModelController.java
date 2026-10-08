@@ -3,6 +3,8 @@ package cvt.cv.ppmbackend.controller;
 import cvt.cv.ppmbackend.dto.PhaseModelDtos.ActiveToggleRequest;
 import cvt.cv.ppmbackend.dto.PhaseModelDtos.ModelRequest;
 import cvt.cv.ppmbackend.dto.PhaseModelDtos.ModelResponse;
+import cvt.cv.ppmbackend.dto.PhaseModelDtos.PhaseProfileRequest;
+import cvt.cv.ppmbackend.dto.PhaseModelDtos.PhaseProfileResponse;
 import cvt.cv.ppmbackend.dto.PhaseModelDtos.PhaseRequest;
 import cvt.cv.ppmbackend.dto.PhaseModelDtos.PhaseResponse;
 import cvt.cv.ppmbackend.dto.PhaseModelDtos.ReorderRequest;
@@ -104,5 +106,29 @@ public class PhaseModelController {
     @PutMapping("/{id}/phases/reorder")
     public List<PhaseResponse> reorder(@PathVariable UUID id, @Valid @RequestBody ReorderRequest request) {
         return service.reorder(id, request);
+    }
+
+    @PostMapping("/{id}/phases/{phaseId}/profiles")
+    public ResponseEntity<PhaseProfileResponse> addPhaseProfile(@PathVariable UUID id, @PathVariable UUID phaseId,
+            @Valid @RequestBody PhaseProfileRequest request) {
+        PhaseProfileResponse saved = service.addPhaseProfile(id, phaseId, request);
+        URI location = ServletUriComponentsBuilder.fromCurrentRequest()
+                .path("/{phaseProfileId}")
+                .buildAndExpand(saved.id())
+                .toUri();
+        return ResponseEntity.created(location).body(saved);
+    }
+
+    @PutMapping("/{id}/phases/{phaseId}/profiles/{phaseProfileId}")
+    public PhaseProfileResponse updatePhaseProfile(@PathVariable UUID id, @PathVariable UUID phaseId,
+            @PathVariable UUID phaseProfileId, @Valid @RequestBody PhaseProfileRequest request) {
+        return service.updatePhaseProfile(id, phaseId, phaseProfileId, request);
+    }
+
+    @DeleteMapping("/{id}/phases/{phaseId}/profiles/{phaseProfileId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deletePhaseProfile(@PathVariable UUID id, @PathVariable UUID phaseId,
+            @PathVariable UUID phaseProfileId) {
+        service.deletePhaseProfile(id, phaseId, phaseProfileId);
     }
 }

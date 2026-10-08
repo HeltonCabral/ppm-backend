@@ -77,6 +77,8 @@ class DemandAreasTest {
     @Mock private DemandDependencyService dependencyService;
     @Mock private PhaseModelRepository phaseModels;
     @Mock private DemandCommitteeActionRepository committeeActions;
+    @Mock private DemandCustomPlanningService customPlanning;
+    @Mock private DemandAccessService access;
 
     private DemandService service;
 
@@ -94,7 +96,7 @@ class DemandAreasTest {
                 demandAreas, participatingDirectionAreas,
                 codeService, historyService, committees, committeeSuggestions, projects, programs, operationalPlans,
                 lookups, scoringService, scoreLifecycle, profileRequirements, successCriteria, supplierRepository,
-                planningCycleService, dependencyService, phaseModels, committeeActions);
+                planningCycleService, dependencyService, phaseModels, committeeActions, customPlanning, access);
 
         type = new PhaseModel();
         type.setId(typeId);
@@ -260,6 +262,6 @@ class DemandAreasTest {
                 "Problema", "Resultado esperado", null,
                 "HIGH", null, null, null, null, null, null, null,
                 null, participatingDirections, null, null,
-                areas);
+                areas, null);
     }
 }

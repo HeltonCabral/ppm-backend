@@ -166,6 +166,19 @@ public class Demand extends BaseEntity {
     @JsonIgnore
     private List<DemandParticipatingDirection> participatingDirections = new ArrayList<>();
 
+    /**
+     * Planeamento personalizado da Demanda. Quando contém fases, substitui o planeamento do Tipo
+     * (fases + recursos) sem alterar o Tipo. Vazio quando a Demanda segue o Tipo.
+     */
+    @OneToMany(mappedBy = "demand", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @OrderBy("sequence ASC")
+    @JsonIgnore
+    private List<DemandCustomPhase> customPhases = new ArrayList<>();
+
+    /** Tipo de origem do planeamento personalizado (informativo). Nulo quando segue o Tipo. */
+    @Column(name = "custom_planning_base_type_id")
+    private UUID customPlanningBaseTypeId;
+
     @OneToMany(mappedBy = "demand", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     private List<DemandDependency> dependencies = new ArrayList<>();

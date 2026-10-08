@@ -4,6 +4,7 @@ import cvt.cv.ppmbackend.config.CapacityThresholdsProperties;
 import cvt.cv.ppmbackend.dto.CapacityDtos.PeriodUtilization;
 import cvt.cv.ppmbackend.dto.CapacityDtos.ProfileUtilization;
 import cvt.cv.ppmbackend.entity.Demand;
+import cvt.cv.ppmbackend.entity.DemandCustomPhase;
 import cvt.cv.ppmbackend.entity.DemandProfileRequirement;
 import cvt.cv.ppmbackend.entity.PhaseDefinition;
 import cvt.cv.ppmbackend.entity.Profile;
@@ -133,7 +134,7 @@ public class CapacityCalculator {
             LocalDate start = demand.getPlannedStartDate();
             LocalDate end = demand.getDesiredDate();
             BigDecimal demandLoad = demandReqs.stream()
-                    .map(r -> BigDecimal.valueOf(r.getRequiredQuantity()))
+                    .map(DemandProfileRequirement::getEquivalentLoad)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
             if (start == null || end == null || end.isBefore(start)) {
                 unscheduled++;
@@ -143,7 +144,7 @@ public class CapacityCalculator {
             // Agrega a carga por mês da Demanda antes de contar: cada Demanda conta uma vez por mês.
             Map<YearMonth, BigDecimal> monthLoad = new TreeMap<>();
             for (DemandProfileRequirement req : demandReqs) {
-                BigDecimal load = BigDecimal.valueOf(req.getRequiredQuantity());
+                BigDecimal load = req.getEquivalentLoad();
                 for (YearMonth m : occupiedMonths(req, windowCache)) {
                     monthLoad.merge(m, load, BigDecimal::add);
                 }
@@ -238,12 +239,12 @@ public class CapacityCalculator {
     private Map<UUID, YearMonth[]> phaseWindows(Demand demand) {
         LocalDate start = demand.getPlannedStartDate();
         LocalDate end = demand.getDesiredDate();
-        List<PhaseDefinition> phases = demand.getType() == null ? List.of() : demand.getType().getPhases();
-        if (phases == null || phases.isEmpty() || start == null || end == null) {
+        List<PhaseSlice> phases = phaseSlices(demand);
+        if (phases.isEmpty() || start == null || end == null) {
             return Map.of();
         }
         BigDecimal totalPercent = phases.stream()
-                .map(PhaseDefinition::getDurationWeightPercentage)
+                .map(PhaseSlice::weight)
                 .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         if (totalPercent.signum() <= 0) {
@@ -251,14 +252,14 @@ public class CapacityCalculator {
         }
         long totalDays = ChronoUnit.DAYS.between(start, end) + 1;
         BigDecimal totalDaysDec = BigDecimal.valueOf(totalDays);
-        List<PhaseDefinition> ordered = phases.stream()
-                .sorted(Comparator.comparing(PhaseDefinition::getSequence))
+        List<PhaseSlice> ordered = phases.stream()
+                .sorted(Comparator.comparing(PhaseSlice::sequence,
+                        Comparator.nullsLast(Comparator.naturalOrder())))
                 .toList();
         Map<UUID, YearMonth[]> windows = new LinkedHashMap<>();
         BigDecimal cumulative = BigDecimal.ZERO;
-        for (PhaseDefinition phase : ordered) {
-            BigDecimal weight = phase.getDurationWeightPercentage() == null
-                    ? BigDecimal.ZERO : phase.getDurationWeightPercentage();
+        for (PhaseSlice phase : ordered) {
+            BigDecimal weight = phase.weight() == null ? BigDecimal.ZERO : phase.weight();
             BigDecimal startFraction = cumulative.divide(totalPercent, 10, RoundingMode.HALF_UP);
             cumulative = cumulative.add(weight);
             BigDecimal endFraction = cumulative.divide(totalPercent, 10, RoundingMode.HALF_UP);
@@ -268,9 +269,29 @@ public class CapacityCalculator {
             endOffset = Math.max(startOffset, Math.min(endOffset, totalDays - 1));
             YearMonth from = YearMonth.from(start.plusDays(startOffset));
             YearMonth to = YearMonth.from(start.plusDays(endOffset));
-            windows.put(phase.getId(), new YearMonth[] { from, to });
+            windows.put(phase.id(), new YearMonth[] { from, to });
         }
         return windows;
+    }
+
+    /**
+     * Fases efetivas para o cálculo das janelas: as do planeamento personalizado (apenas ativas)
+     * quando presente; caso contrário, as fases do Tipo da Demanda.
+     */
+    private List<PhaseSlice> phaseSlices(Demand demand) {
+        if (demand.getCustomPhases() != null && !demand.getCustomPhases().isEmpty()) {
+            return demand.getCustomPhases().stream()
+                    .filter(DemandCustomPhase::isActive)
+                    .map(p -> new PhaseSlice(p.getId(), p.getSequence(), p.getDurationWeightPercentage()))
+                    .toList();
+        }
+        List<PhaseDefinition> phases = demand.getType() == null ? List.of() : demand.getType().getPhases();
+        return phases.stream()
+                .map(p -> new PhaseSlice(p.getId(), p.getSequence(), p.getDurationWeightPercentage()))
+                .toList();
+    }
+
+    private record PhaseSlice(UUID id, Integer sequence, BigDecimal weight) {
     }
 
     private Set<YearMonth> monthRange(YearMonth from, YearMonth to) {

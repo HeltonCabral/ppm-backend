@@ -19,6 +19,7 @@ public class DemandCapacityAnalysisDtos {
             BigDecimal peakUtilization,
             YearMonth criticalPeriod,
             String mainConflict,
+            String reason,
             List<ProfileCapacityAnalysis> profiles) {
     }
 
@@ -28,7 +29,7 @@ public class DemandCapacityAnalysisDtos {
             String profileName,
             String directionCode,
             boolean active,
-            Integer requiredQuantity,
+            BigDecimal requiredFte,
             Integer availableCapacity,
             Integer simultaneousDemandCapacity,
             CapacityStatus status,
@@ -45,7 +46,7 @@ public class DemandCapacityAnalysisDtos {
             UUID demandId,
             String code,
             String title,
-            Integer requiredQuantity,
+            BigDecimal requiredFte,
             LocalDate periodStart,
             LocalDate periodEnd) {
     }

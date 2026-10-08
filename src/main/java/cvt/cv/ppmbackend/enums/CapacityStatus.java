@@ -6,11 +6,14 @@ public enum CapacityStatus {
     CONDITIONED,
     RESTRICTED,
     CRITICAL,
-    NOT_CONFIGURED;
+    NOT_CONFIGURED,
+    /** A capacidade ainda não pode ser calculada (ex.: sem início previsto/duração da Demanda). */
+    NOT_CALCULATED;
 
     /** Severidade crescente. NOT_CONFIGURED é o pior porque impede avaliação segura. */
     public int severity() {
         return switch (this) {
+            case NOT_CALCULATED -> -1;
             case OK -> 0;
             case CONDITIONED -> 1;
             case RESTRICTED -> 2;

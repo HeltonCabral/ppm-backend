@@ -30,6 +30,10 @@ public final class PhaseModelDtos {
             @Size(max = 4000, message = "A descrição não pode exceder 4000 caracteres.")
             String description,
 
+            List<@NotBlank(message = "Os códigos de direção não podem ser vazios.")
+                    @Size(max = 60, message = "O código de direção não pode exceder 60 caracteres.") String>
+                    applicableDirectionCodes,
+
             Boolean active) {
     }
 
@@ -69,9 +73,15 @@ public final class PhaseModelDtos {
             boolean active,
             BigDecimal totalActiveWeight,
             boolean weightsBalanced,
+            List<DirectionRef> applicableDirections,
             List<PhaseResponse> phases,
             Instant createdAt,
             Instant updatedAt) {
+    }
+
+    public record DirectionRef(
+            String code,
+            String name) {
     }
 
     public record PhaseResponse(
@@ -83,8 +93,29 @@ public final class PhaseModelDtos {
             Integer sequence,
             BigDecimal durationWeightPercentage,
             boolean active,
+            List<PhaseProfileResponse> profiles,
             Instant createdAt,
             Instant updatedAt) {
+    }
+
+    public record PhaseProfileRequest(
+            @NotNull(message = "O perfil é obrigatório.")
+            UUID profileId,
+
+            @NotNull(message = "A alocação é obrigatória.")
+            @DecimalMin(value = "0.00", inclusive = false, message = "A alocação deve ser maior que zero.")
+            @DecimalMax(value = "10000.00", inclusive = true, message = "A alocação não pode exceder 10000%.")
+            BigDecimal allocationPercentage) {
+    }
+
+    public record PhaseProfileResponse(
+            UUID id,
+            UUID profileId,
+            String profileName,
+            String directionCode,
+            String directionName,
+            BigDecimal allocationPercentage,
+            boolean profileActive) {
     }
 
     public record ActiveToggleRequest(

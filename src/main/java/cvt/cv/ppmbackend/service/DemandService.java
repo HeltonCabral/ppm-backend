@@ -63,6 +63,8 @@ public class DemandService {
     private final DemandDependencyService dependencyService;
     private final cvt.cv.ppmbackend.repository.PhaseModelRepository phaseModels;
     private final cvt.cv.ppmbackend.repository.DemandCommitteeActionRepository committeeActions;
+    private final DemandCustomPlanningService customPlanning;
+    private final DemandAccessService access;
 
     public DemandService(DemandRepository demands, DemandPlanningCycleRepository planningCycles,
             DemandAttachmentRepository attachments, DemandHistoryRepository history,
@@ -79,7 +81,9 @@ public class DemandService {
             SupplierRepository supplierRepository, DemandPlanningCycleService planningCycleService,
             DemandDependencyService dependencyService,
             cvt.cv.ppmbackend.repository.PhaseModelRepository phaseModels,
-            cvt.cv.ppmbackend.repository.DemandCommitteeActionRepository committeeActions) {
+            cvt.cv.ppmbackend.repository.DemandCommitteeActionRepository committeeActions,
+            DemandCustomPlanningService customPlanning,
+            DemandAccessService access) {
         this.demands = demands;
         this.planningCycles = planningCycles;
         this.attachments = attachments;
@@ -104,6 +108,8 @@ public class DemandService {
         this.dependencyService = dependencyService;
         this.phaseModels = phaseModels;
         this.committeeActions = committeeActions;
+        this.customPlanning = customPlanning;
+        this.access = access;
     }
 
     public DemandResponse create(Create req, String actorId) {
@@ -138,6 +144,7 @@ public class DemandService {
         syncDemandAreas(saved, req.areas(), actorId);
         profileRequirements.sync(saved, req.profileRequirements());
         successCriteria.sync(saved, req.successCriteria());
+        customPlanning.apply(saved, req.customPlanning(), actor(actorId));
         historyService.log(saved, "CREATED", null, cycle.getStatus().name(), "Demanda criada", actor(actorId),
                 actor(actorId), Map.of("code", saved.getCode()));
         return map(saved);
@@ -254,7 +261,8 @@ public class DemandService {
                 directionInputs,
                 profileInputs,
                 criterionInputs,
-                copyDemandAreas(source.getId()));
+                copyDemandAreas(source.getId()),
+                null);
     }
 
     private boolean copyEnabled(Boolean flag) {
@@ -309,6 +317,7 @@ public class DemandService {
         applyStrategicFramingIfRequested(saved, req.strategicPillarId(), req.strategicElementId(),
                 req.strategicObjectiveId(), actorId);
 
+        applyCustomPlanningChange(saved, previousTypeId, req.customPlanning(), actorId);
         historyService.log(saved, "UPDATED", null, null, "Demanda atualizada", actor(actorId), actor(actorId), Map.of());
         return map(saved);
     }
@@ -354,6 +363,7 @@ public class DemandService {
         applyStrategicFramingIfRequested(saved, req.strategicPillarId(), req.strategicElementId(),
                 req.strategicObjectiveId(), actorId);
 
+        applyCustomPlanningChange(saved, previousTypeId, req.customPlanning(), actorId);
         historyService.log(saved, "UPDATED", null, null, "Demanda atualizada parcialmente", actor(actorId),
                 actor(actorId), Map.of());
         return map(saved);
@@ -635,7 +645,10 @@ public class DemandService {
         }
         String sortField = sort == null || sort.isBlank() ? "createdAt" : sort;
         Specification<Demand> spec = (root, query, cb) -> cb.isNull(root.get("deletedAt"));
-        if (createdBy != null && !createdBy.isBlank()) {
+        if (access.filterEnabled()) {
+            // A regra "Ver" já inclui as demandas criadas pelo utilizador.
+            spec = spec.and(access.visibleToCurrentUser());
+        } else if (createdBy != null && !createdBy.isBlank()) {
             final String creator = createdBy.trim();
             spec = spec.and((r, q, cb) -> cb.equal(r.get("createdBy"), creator));
         }
@@ -934,7 +947,10 @@ public class DemandService {
                 d.getVersion(), typeData, domainData, budgetLineData, currentCycle,
                 att, participatingDirs, profileRequirementResponses,
                 supplierSummaries, successCriteriaResponses, dependencyResponses,
-                listDemandAreas(d.getId()));
+                listDemandAreas(d.getId()), customPlanning.buildResponse(d),
+                access.permissionsFor(d,
+                        participatingDirs.stream().map(ParticipatingDirectionResponse::directionCode).toList(),
+                        currentPlanningCycle));
     }
 
     private SupplierSummary mapSupplier(Supplier supplier) {
@@ -996,6 +1012,19 @@ public class DemandService {
         if (!Objects.equals(previousTypeId, currentTypeId)) {
             profileRequirements.handleTypeChange(demand);
         }
+    }
+
+    /**
+     * Aplica a alteração de planeamento personalizado num update/patch: alterar o Tipo apaga a
+     * personalização; depois aplica o campo {@code customPlanning} do pedido (omitido/null/objeto).
+     */
+    private void applyCustomPlanningChange(Demand demand, UUID previousTypeId,
+            com.fasterxml.jackson.databind.JsonNode node, String actorId) {
+        UUID currentTypeId = demand.getType() == null ? null : demand.getType().getId();
+        if (!Objects.equals(previousTypeId, currentTypeId)) {
+            customPlanning.clear(demand);
+        }
+        customPlanning.apply(demand, node, actor(actorId));
     }
 
     private StrategicPlanSummary mapStrategicPlan(StrategicPlan plan) {
@@ -1238,7 +1267,8 @@ public class DemandService {
                 p.participatingDirections(),
                 p.profileRequirements(),
                 p.successCriteria(),
-                p.areas());
+                p.areas(),
+                null);
     }
 
     private Create toCreate(Update u) {
@@ -1247,7 +1277,7 @@ public class DemandService {
                 u.problemStatement(), u.desiredOutcome(), u.proposedResponse(), u.urgency(), u.estimatedBudget(),
                 u.desiredDate(), u.mandatoryDeadline(), u.notes(), u.risksIdentified(),
                 u.dependenciesIdentified(), u.dependenciesCount(),
-                null, u.participatingDirections(), u.profileRequirements(), u.successCriteria(), u.areas());
+                null, u.participatingDirections(), u.profileRequirements(), u.successCriteria(), u.areas(), null);
     }
 
     private void validateDates(LocalDate start, LocalDate end) {

@@ -68,6 +68,8 @@ class DemandReprioritizationTest {
     @Mock private DemandDependencyService dependencyService;
     @Mock private PhaseModelRepository phaseModels;
     @Mock private DemandCommitteeActionRepository committeeActions;
+    @Mock private DemandCustomPlanningService customPlanning;
+    @Mock private DemandAccessService access;
 
     private DemandService service;
 
@@ -81,7 +83,7 @@ class DemandReprioritizationTest {
                 demandAreas, participatingDirectionAreas,
                 codeService, historyService, committees, committeeSuggestions, projects, programs, operationalPlans,
                 lookups, scoringService, scoreLifecycle, profileRequirements, successCriteria, supplierRepository,
-                planningCycleService, dependencyService, phaseModels, committeeActions);
+                planningCycleService, dependencyService, phaseModels, committeeActions, customPlanning, access);
 
         plan = new StrategicPlan();
         plan.setId(planId);

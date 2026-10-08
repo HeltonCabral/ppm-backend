@@ -8,7 +8,7 @@ import java.math.BigDecimal;
 
 @Entity
 @Table(name = "strategic_objective_annual_targets", uniqueConstraints = @UniqueConstraint(name = "uk_annual_target_year", columnNames = {
-        "strategic_objective_id", "year" }))
+        "strategic_objective_id", "`year`" }))
 @Getter
 @Setter
 @NoArgsConstructor
@@ -18,7 +18,7 @@ public class StrategicObjectiveAnnualTarget extends BaseEntity {
     @JoinColumn(name = "strategic_objective_id", nullable = false)
     @JsonIgnore
     private StrategicObjective strategicObjective;
-    @Column(nullable = false)
+    @Column(name = "`year`", nullable = false)
     private Integer year;
     @Column(name = "target_label", nullable = false, length = 200)
     private String targetLabel;

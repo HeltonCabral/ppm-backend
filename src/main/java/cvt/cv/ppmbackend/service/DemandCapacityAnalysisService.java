@@ -17,11 +17,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -46,26 +46,34 @@ public class DemandCapacityAnalysisService {
     private final DemandPlanningCycleRepository planningCycles;
     private final DemandPlanningCycleService planningCycleService;
     private final DemandProfileRequirementRepository profileRequirements;
+    private final DemandResourceDerivationService resourceDerivation;
     private final CapacityCalculator calculator;
 
     public DemandCapacityAnalysisService(DemandPlanningCycleRepository planningCycles,
             DemandPlanningCycleService planningCycleService,
             DemandProfileRequirementRepository profileRequirements,
+            DemandResourceDerivationService resourceDerivation,
             CapacityCalculator calculator) {
         this.planningCycles = planningCycles;
         this.planningCycleService = planningCycleService;
         this.profileRequirements = profileRequirements;
+        this.resourceDerivation = resourceDerivation;
         this.calculator = calculator;
     }
 
     @Transactional(readOnly = true)
     public CapacityAnalysisResponse analyze(UUID demandId, UUID strategicPlanId) {
-        planningCycleService.resolveForMutation(demandId, strategicPlanId);
+        DemandPlanningCycle cycle = planningCycleService.resolveForMutation(demandId, strategicPlanId);
+        Demand demand = cycle.getDemand();
 
-        List<DemandProfileRequirement> ownRequirements =
-                profileRequirements.findByDemand_IdOrderByProfile_NameAsc(demandId);
+        if (demand.getPlannedStartDate() == null || demand.getDesiredDate() == null) {
+            return new CapacityAnalysisResponse(CapacityStatus.NOT_CALCULATED, null, null, null,
+                    "Sem início previsto/duração: calcule a complexidade da demanda.", List.of());
+        }
+
+        List<DemandProfileRequirement> ownRequirements = requirementsForDemand(demand);
         if (ownRequirements.isEmpty()) {
-            return new CapacityAnalysisResponse(CapacityStatus.OK, null, null, null, List.of());
+            return new CapacityAnalysisResponse(CapacityStatus.OK, null, null, null, null, List.of());
         }
 
         List<DemandProfileRequirement> allRequirements = liveRequirements(strategicPlanId);
@@ -80,10 +88,8 @@ public class DemandCapacityAnalysisService {
             UUID profileId = requirement.getProfile().getId();
             Set<YearMonth> months = calculator.requirementMonths(requirement);
             ProfileUtilization utilization = calculator.scopeToMonths(utilizations.get(profileId), months);
-            List<CompetingDemand> competing = othersByProfile.getOrDefault(profileId, List.of()).stream()
-                    .filter(r -> intersects(calculator.requirementMonths(r), months))
-                    .map(this::toCompetingDemand)
-                    .toList();
+            List<CompetingDemand> competing = competingDemands(
+                    othersByProfile.getOrDefault(profileId, List.of()), months);
             profiles.add(buildProfileAnalysis(requirement, utilization, competing));
         }
         // Ordena por nome do perfil e, em empate, pela menor sequence das fases da entrada.
@@ -102,6 +108,7 @@ public class DemandCapacityAnalysisService {
                 peakProfile == null ? null : peakProfile.peakUtilization(),
                 peakProfile == null ? null : peakProfile.criticalPeriod(),
                 mainConflict(profiles, overall),
+                null,
                 List.copyOf(profiles));
     }
 
@@ -134,20 +141,58 @@ public class DemandCapacityAnalysisService {
         if (liveCycles.isEmpty()) {
             return List.of();
         }
-        Set<UUID> demandIds = liveCycles.stream()
-                .map(c -> c.getDemand().getId())
-                .collect(Collectors.toSet());
-        return profileRequirements.findByDemand_IdIn(demandIds);
+        Map<UUID, Demand> demandsById = new LinkedHashMap<>();
+        for (DemandPlanningCycle cycle : liveCycles) {
+            Demand demand = cycle.getDemand();
+            demandsById.putIfAbsent(demand.getId(), demand);
+        }
+        List<DemandProfileRequirement> out = new ArrayList<>();
+        for (Demand demand : demandsById.values()) {
+            out.addAll(requirementsForDemand(demand));
+        }
+        return out;
+    }
+
+    /**
+     * Requisitos de uma Demanda: derivados dos perfis das fases do seu Tipo quando configurados;
+     * caso contrário, os requisitos legados persistidos (compatibilidade com Demandas antigas).
+     */
+    private List<DemandProfileRequirement> requirementsForDemand(Demand demand) {
+        if (resourceDerivation.hasDerivedResources(demand)) {
+            return resourceDerivation.deriveRequirements(demand);
+        }
+        return profileRequirements.findByDemand_IdOrderByProfile_NameAsc(demand.getId());
+    }
+
+    private List<CompetingDemand> competingDemands(List<DemandProfileRequirement> reqs, Set<YearMonth> months) {
+        Map<UUID, Demand> demandsById = new LinkedHashMap<>();
+        Map<UUID, BigDecimal> fteByDemand = new LinkedHashMap<>();
+        for (DemandProfileRequirement r : reqs) {
+            if (!intersects(calculator.requirementMonths(r), months)) {
+                continue;
+            }
+            Demand demand = r.getDemand();
+            demandsById.putIfAbsent(demand.getId(), demand);
+            fteByDemand.merge(demand.getId(), r.getEquivalentLoad(), BigDecimal::add);
+        }
+        List<CompetingDemand> out = new ArrayList<>();
+        for (Demand demand : demandsById.values()) {
+            out.add(new CompetingDemand(demand.getId(), demand.getCode(), demand.getTitle(),
+                    fteByDemand.get(demand.getId()).setScale(2, java.math.RoundingMode.HALF_UP),
+                    demand.getPlannedStartDate(), demand.getDesiredDate()));
+        }
+        return out;
     }
 
     private ProfileCapacityAnalysis buildProfileAnalysis(DemandProfileRequirement requirement,
             ProfileUtilization utilization, List<CompetingDemand> competing) {
         List<DemandPhaseRef> phases = phasesOf(requirement);
+        BigDecimal requiredFte = requirement.getEquivalentLoad().setScale(2, java.math.RoundingMode.HALF_UP);
         if (utilization == null) {
             return new ProfileCapacityAnalysis(
                     requirement.getId(), requirement.getProfile().getId(), requirement.getProfile().getName(),
                     requirement.getProfile().getDirectionCode(), requirement.getProfile().isActive(),
-                    requirement.getRequiredQuantity(),
+                    requiredFte,
                     requirement.getProfile().getAvailableCapacity(),
                     requirement.getProfile().getSimultaneousDemandCapacity(),
                     CapacityStatus.NOT_CONFIGURED, null, null, null, 0, List.of(), competing, phases);
@@ -155,7 +200,7 @@ public class DemandCapacityAnalysisService {
         return new ProfileCapacityAnalysis(
                 requirement.getId(), utilization.profileId(), utilization.profileName(), utilization.directionCode(),
                 utilization.active(),
-                requirement.getRequiredQuantity(),
+                requiredFte,
                 utilization.availableCapacity(), utilization.simultaneousDemandCapacity(),
                 utilization.status(), utilization.peakUtilization(), utilization.criticalPeriod(),
                 utilization.requiredLoadAtPeak(), utilization.simultaneousDemandsAtPeak(),
@@ -226,7 +271,7 @@ public class DemandCapacityAnalysisService {
                     + formatPeak(profile) + ").";
             case CONDITIONED -> profile.profileName() + " opera perto do limite de capacidade ("
                     + formatPeak(profile) + ").";
-            case OK -> null;
+            case OK, NOT_CALCULATED -> null;
         };
     }
 
@@ -234,14 +279,5 @@ public class DemandCapacityAnalysisService {
         BigDecimal peak = profile.peakUtilization();
         String peakStr = peak == null ? "s/ pico" : peak + "%";
         return profile.criticalPeriod() == null ? peakStr : peakStr + " em " + profile.criticalPeriod();
-    }
-
-    private CompetingDemand toCompetingDemand(DemandProfileRequirement requirement) {
-        Demand demand = requirement.getDemand();
-        LocalDate periodStart = demand.getPlannedStartDate();
-        LocalDate periodEnd = demand.getDesiredDate();
-        return new CompetingDemand(demand.getId(), demand.getCode(), demand.getTitle(),
-                requirement.getRequiredQuantity(),
-                periodStart, periodEnd);
     }
 }

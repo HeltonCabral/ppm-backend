@@ -96,7 +96,8 @@ public final class DemandDtos {
                         @Valid List<ParticipatingDirectionCreate> participatingDirections,
                         @Valid List<DemandProfileRequirementInput> profileRequirements,
                         @Valid List<DemandSuccessCriterionInput> successCriteria,
-                        @Valid List<DirectionAreaInput> areas) {
+                        @Valid List<DirectionAreaInput> areas,
+                        JsonNode customPlanning) {
         }
 
         /**
@@ -149,7 +150,8 @@ public final class DemandDtos {
                         @Valid List<ParticipatingDirectionCreate> participatingDirections,
                         @Valid List<DemandProfileRequirementInput> profileRequirements,
                         @Valid List<DemandSuccessCriterionInput> successCriteria,
-                        @Valid List<DirectionAreaInput> areas) {
+                        @Valid List<DirectionAreaInput> areas,
+                        JsonNode customPlanning) {
         }
 
         public record Patch(
@@ -188,7 +190,8 @@ public final class DemandDtos {
                         @Valid List<ParticipatingDirectionCreate> participatingDirections,
                         @Valid List<DemandProfileRequirementInput> profileRequirements,
                         @Valid List<DemandSuccessCriterionInput> successCriteria,
-                        @Valid List<DirectionAreaInput> areas) {
+                        @Valid List<DirectionAreaInput> areas,
+                        JsonNode customPlanning) {
         }
 
         public record AssignCommitteeRequest(@NotNull UUID committeeId) {
@@ -349,7 +352,13 @@ public final class DemandDtos {
                         List<SupplierSummary> suppliers,
                         List<DemandSuccessCriterionResponse> successCriteria,
                         List<DemandDependencyDtos.Response> dependencies,
-                        List<DirectionAreaResponse> areas) {
+                        List<DirectionAreaResponse> areas,
+                        CustomPlanningResponse customPlanning,
+                        DemandPermissions permissions) {
+        }
+
+        /** O que o utilizador atual pode fazer com a demanda (regra de acesso por direção). */
+        public record DemandPermissions(boolean canView, boolean canEdit) {
         }
 
         public record DemandHistoryResponse(
@@ -505,5 +514,53 @@ public final class DemandDtos {
                         String phaseCode,
                         String phaseName,
                         Integer phaseSequence) {
+        }
+
+        public record CustomPlanningInput(
+                        UUID baseTypeId,
+                        List<CustomPhaseInput> phases) {
+        }
+
+        public record CustomPhaseInput(
+                        UUID id,
+                        UUID sourcePhaseId,
+                        String name,
+                        String description,
+                        Integer sequence,
+                        BigDecimal durationWeightPercentage,
+                        Boolean active,
+                        List<CustomResourceInput> resources) {
+        }
+
+        public record CustomResourceInput(
+                        UUID id,
+                        UUID profileId,
+                        BigDecimal allocationPercentage) {
+        }
+
+        public record CustomPlanningResponse(
+                        UUID baseTypeId,
+                        List<CustomPhaseResponse> phases) {
+        }
+
+        public record CustomPhaseResponse(
+                        UUID id,
+                        UUID sourcePhaseId,
+                        String name,
+                        String description,
+                        Integer sequence,
+                        BigDecimal durationWeightPercentage,
+                        boolean active,
+                        List<CustomResourceResponse> resources) {
+        }
+
+        public record CustomResourceResponse(
+                        UUID id,
+                        UUID profileId,
+                        BigDecimal allocationPercentage,
+                        String profileName,
+                        String directionCode,
+                        String directionName,
+                        boolean profileActive) {
         }
 }

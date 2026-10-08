@@ -9,12 +9,14 @@ import jakarta.persistence.JoinTable;
 import jakarta.persistence.ManyToMany;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -37,6 +39,20 @@ public class DemandProfileRequirement extends BaseEntity {
 
     @Column(name = "required_quantity", nullable = false)
     private Integer requiredQuantity;
+
+    /**
+     * Carga equivalente em FTE. Preenchida quando o requisito é derivado dos perfis das fases do
+     * Tipo (allocationPercentage / 100). Para requisitos legados persistidos fica nula e a carga
+     * equivalente deriva de {@code requiredQuantity}.
+     */
+    @Transient
+    private BigDecimal equivalentLoad;
+
+    public BigDecimal getEquivalentLoad() {
+        return equivalentLoad != null
+                ? equivalentLoad
+                : BigDecimal.valueOf(requiredQuantity == null ? 0 : requiredQuantity);
+    }
 
     @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(name = "demand_profile_requirement_phases",

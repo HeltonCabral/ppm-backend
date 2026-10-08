@@ -48,19 +48,22 @@ public class DemandComplexityService {
     private final DemandRepository demands;
     private final DemandParticipatingDirectionRepository participatingDirections;
     private final DemandProfileRequirementService profileRequirements;
+    private final DemandResourceDerivationService resourceDerivation;
     private final DemandDependencyRepository dependencies;
     private final DemandPlanningCycleService planningCycleService;
 
     public DemandComplexityService(ComplexityCriterionConfigRepository criterionConfigs,
             ComplexityLevelConfigRepository levelConfigs, DemandRepository demands,
             DemandParticipatingDirectionRepository participatingDirections,
-            DemandProfileRequirementService profileRequirements, DemandDependencyRepository dependencies,
+            DemandProfileRequirementService profileRequirements,
+            DemandResourceDerivationService resourceDerivation, DemandDependencyRepository dependencies,
             DemandPlanningCycleService planningCycleService) {
         this.criterionConfigs = criterionConfigs;
         this.levelConfigs = levelConfigs;
         this.demands = demands;
         this.participatingDirections = participatingDirections;
         this.profileRequirements = profileRequirements;
+        this.resourceDerivation = resourceDerivation;
         this.dependencies = dependencies;
         this.planningCycleService = planningCycleService;
     }
@@ -134,9 +137,17 @@ public class DemandComplexityService {
 
         Map<ComplexityCriterion, ComplexityCriterionConfig> configs = activeCriterionConfigs();
         int directionsCount = countDirections(demand);
-        DemandProfileRequirementService.RequirementSummary requirements = profileRequirements.summary(demandId);
-        int profilesCount = requirements.profilesCount();
-        int totalResources = requirements.totalResources();
+        int profilesCount;
+        int totalResources;
+        if (resourceDerivation.hasDerivedResources(demand)) {
+            DemandResourceDerivationService.ResourceSummary derived = resourceDerivation.summary(demand);
+            profilesCount = derived.profilesCount();
+            totalResources = derived.totalFte().setScale(0, RoundingMode.HALF_UP).intValue();
+        } else {
+            DemandProfileRequirementService.RequirementSummary requirements = profileRequirements.summary(demandId);
+            profilesCount = requirements.profilesCount();
+            totalResources = requirements.totalResources();
+        }
         int dependenciesCount = Math.toIntExact(dependencies.countByDemand_Id(demandId));
 
         int totalScore = score(configs.get(ComplexityCriterion.DIRECTIONS_COUNT), directionsCount)
