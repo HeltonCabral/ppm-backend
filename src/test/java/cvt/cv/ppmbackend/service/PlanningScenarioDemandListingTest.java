@@ -50,11 +50,13 @@ class PlanningScenarioDemandListingTest {
     @Mock
     private DemandProfileRequirementRepository profileRequirements;
     @Mock
+    private DemandResourceDerivationService resourceDerivation;
+    @Mock
     private DemandDependencyRepository dependencies;
     @Mock
     private DemandCapacityAnalysisService capacityAnalysis;
-    @Mock
-    private CapacityCalculator capacityCalculator;
+    private final CapacityCalculator capacityCalculator =
+            new CapacityCalculator(new cvt.cv.ppmbackend.config.CapacityThresholdsProperties());
     @Mock
     private StrategicPlanRepository strategicPlans;
 
@@ -64,7 +66,8 @@ class PlanningScenarioDemandListingTest {
 
     @BeforeEach
     void setUp() {
-        service = new PlanningScenarioAnalysisService(scenarioService, items, pool, profileRequirements, dependencies,
+        service = new PlanningScenarioAnalysisService(scenarioService, items, pool,
+                new DemandRequirementsResolver(resourceDerivation, profileRequirements), dependencies,
                 capacityAnalysis, capacityCalculator, strategicPlans);
         plan = new StrategicPlan();
         plan.setId(UUID.randomUUID());

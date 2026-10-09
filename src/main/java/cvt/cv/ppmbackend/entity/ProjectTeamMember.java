@@ -50,6 +50,12 @@ public class ProjectTeamMember extends BaseEntity {
     @Column(nullable = false, length = 20)
     private MemberType type;
 
+    /** Perfil do projeto que este membro preenche; nulo para membros sem perfil previsto. */
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "project_profile_id")
+    @JsonIgnore
+    private ProjectProfile projectProfile;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;

@@ -262,6 +262,6 @@ class DemandAreasTest {
                 "Problema", "Resultado esperado", null,
                 "HIGH", null, null, null, null, null, null, null,
                 null, participatingDirections, null, null,
-                areas, null);
+                areas, null, null);
     }
 }

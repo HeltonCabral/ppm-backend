@@ -32,11 +32,25 @@ public class ProjectService {
     private final OperationalPlanRepository operationalPlans;
     private final StrategicPillarRepository strategicPillars;
     private final StrategicObjectiveRepository strategicObjectives;
+    private final DemandProjectInheritanceService inheritance;
+    private final ProjectPhaseService phases;
+    private final ProjectEventService events;
+    private final ProjectClosureService closures;
+    private final ProjectGuard guard;
+    private final PhaseModelRepository phaseModels;
 
     public ProjectService(ProjectRepository projects, ProjectExecutionRankHistoryRepository rankHistory,
             LookupValueRepository lookups, SupplierRepository suppliers, ProgramRepository programs,
             StrategicPlanRepository strategicPlans, OperationalPlanRepository operationalPlans,
-            StrategicPillarRepository strategicPillars, StrategicObjectiveRepository strategicObjectives) {
+            StrategicPillarRepository strategicPillars, StrategicObjectiveRepository strategicObjectives,
+            DemandProjectInheritanceService inheritance, ProjectPhaseService phases, ProjectEventService events,
+            ProjectClosureService closures, ProjectGuard guard, PhaseModelRepository phaseModels) {
+        this.inheritance = inheritance;
+        this.phases = phases;
+        this.events = events;
+        this.closures = closures;
+        this.guard = guard;
+        this.phaseModels = phaseModels;
         this.projects = projects;
         this.rankHistory = rankHistory;
         this.lookups = lookups;
@@ -55,7 +69,7 @@ public class ProjectService {
 
     @Transactional(readOnly = true)
     public ProjectResponse get(UUID id) {
-        return ProjectResponse.from(findById(id));
+        return ProjectResponse.detailed(findById(id));
     }
 
     @Transactional(readOnly = true)
@@ -81,7 +95,11 @@ public class ProjectService {
     }
 
     public ProjectResponse createExtraPlan(ProjectCreateExtraPlanRequest request, String actor) {
+        guard.requireEditAll("Só quem tem projeto_editar_todos pode criar projetos extra-plano.");
         validateDates(request.plannedStartDate(), request.plannedEndDate());
+        PhaseModel phaseModel = request.phaseModelId() == null ? null
+                : phaseModels.findWithPhasesById(request.phaseModelId())
+                        .orElseThrow(() -> new BadRequestException("Tipo não encontrado: " + request.phaseModelId()));
         Project project = new Project();
         project.setCode(nextCode());
         project.setName(request.name());
@@ -104,7 +122,16 @@ public class ProjectService {
         project.setExecutionRank(active.size() + 1);
         project.attachExecution(newExecution(request.plannedStartDate(), null, request.plannedEndDate(), null, null,
                 actor));
-        return ProjectResponse.from(projects.save(project));
+        if (hasText(request.projectManager())) project.setProjectManager(request.projectManager().trim());
+        if (hasText(request.projectManagerUsername())) {
+            project.setProjectManagerUsername(request.projectManagerUsername().trim().toLowerCase(Locale.ROOT));
+        }
+        project.setPhaseModel(phaseModel);
+        phases.createPhases(project, ProjectPhasePlanner.seedsFromModel(phaseModel), actor(actor));
+        setBaseline(project);
+        Project saved = projects.save(project);
+        events.log(saved, ProjectEventType.CREATED, "Projeto extra-plano criado", actor);
+        return ProjectResponse.detailed(saved);
     }
 
     public ProjectResponse update(UUID id, ProjectUpdateRequest request, String actor) {
@@ -115,6 +142,8 @@ public class ProjectService {
         if (p.getOrigin() != ProjectOrigin.DEMAND && !hasText(request.directionName())) {
             throw new BadRequestException("directionName é obrigatória para projeto não originado de demanda");
         }
+        String previousManager = p.getProjectManager();
+        BigDecimal previousBudget = p.getBudget();
         p.setName(request.name());
         p.setDescription(request.description());
         p.setProgram(entity(programs, request.programId(), "Programa"));
@@ -136,6 +165,10 @@ public class ProjectService {
         //p.setStatus(request.status());
         p.setProjectPhase(entity(lookups, request.projectPhaseId(), "Fase do projeto"));
         if (request.projectManager() != null) p.setProjectManager(request.projectManager().trim());
+        if (request.projectManagerUsername() != null) {
+            p.setProjectManagerUsername(hasText(request.projectManagerUsername())
+                    ? request.projectManagerUsername().trim().toLowerCase(Locale.ROOT) : null);
+        }
         p.setExtraPlanJustification(trim(request.extraPlanJustification()));
         p.setUpdatedBy(actor(actor));
         // Update execution data if provided
@@ -157,7 +190,18 @@ public class ProjectService {
             exec.setLastUpdatedBy(actor(actor));
             exec.setLastUpdatedAt(java.time.Instant.now());
         }
-        return ProjectResponse.from(projects.save(p));
+        Project saved = projects.save(p);
+        if (!Objects.equals(trim(previousManager), trim(saved.getProjectManager()))) {
+            events.log(saved, ProjectEventType.MANAGER_CHANGED, "Gestor do projeto: "
+                    + Objects.requireNonNullElse(trim(previousManager), "sem gestor") + " → "
+                    + Objects.requireNonNullElse(trim(saved.getProjectManager()), "sem gestor"), actor);
+        }
+        if (!sameAmount(previousBudget, saved.getBudget())) {
+            events.log(saved, ProjectEventType.BUDGET_CHANGED, "Orçamento alterado: "
+                    + ProjectEventService.money(previousBudget) + " → "
+                    + ProjectEventService.money(saved.getBudget()), actor);
+        }
+        return ProjectResponse.detailed(saved);
     }
 
     public Project saveFromDemand(Project p, Demand demand, DemandPlanningCycle cycle, LocalDate plannedStart,
@@ -186,10 +230,40 @@ public class ProjectService {
             p.setAreaCode(hasText(demand.getAreaName()) ? demand.getAreaCode() : null);
         }
         if (!hasText(p.getDirectionName())) throw new BadRequestException("directionName é obrigatória no projeto");
+        inheritance.inherit(p, demand);
+        p.getProfiles().forEach(profile -> {
+            profile.setCreatedBy(actor(actor));
+            profile.setUpdatedBy(actor(actor));
+        });
+        // Sem datas na conversão, o calendário vem da Demanda — só quando é coerente, para nunca falhar aqui.
+        if (plannedEnd == null) {
+            LocalDate demandEnd = demand.getDesiredDate() != null ? demand.getDesiredDate() : demand.getMandatoryDeadline();
+            if (demandEnd != null && (plannedStart == null || !demandEnd.isBefore(plannedStart))) plannedEnd = demandEnd;
+        }
+        if (plannedStart == null && demand.getPlannedStartDate() != null
+                && (plannedEnd == null || !demand.getPlannedStartDate().isAfter(plannedEnd))) {
+            plannedStart = demand.getPlannedStartDate();
+        }
         p.setCreatedBy(actor(actor));
         p.setUpdatedBy(actor(actor));
         p.attachExecution(newExecution(plannedStart, actualStart, plannedEnd, actualEnd, delayReasons, actor));
-        return projects.save(p);
+        phases.createPhases(p, ProjectPhasePlanner.seedsFromDemand(demand), actor(actor));
+        setBaseline(p);
+        Project saved = projects.save(p);
+        events.log(saved, ProjectEventType.CREATED, "Projeto criado a partir da demanda " + demand.getCode(), actor);
+        return saved;
+    }
+
+    /** Orçamento e fim previstos na criação, antes de qualquer pedido de alteração. */
+    private static void setBaseline(Project project) {
+        if (project.getBaselineBudget() == null) project.setBaselineBudget(project.getBudget());
+        if (project.getBaselineEndDate() == null && project.getExecution() != null) {
+            project.setBaselineEndDate(project.getExecution().getPlannedEndDate());
+        }
+    }
+
+    private static boolean sameAmount(BigDecimal a, BigDecimal b) {
+        return a == null ? b == null : b != null && a.compareTo(b) == 0;
     }
 
     public ReprioritizeResponse reprioritize(UUID id, ReprioritizeRequest request, String actor) {
@@ -215,9 +289,27 @@ public class ProjectService {
 
     public ProjectResponse updateStatus(UUID id, ProjectStatus status, String actor) {
         Project p = findById(id);
+        ProjectStatus previous = p.getStatus();
         p.setStatus(status);
         p.setUpdatedBy(actor(actor));
-        return ProjectResponse.from(projects.save(p));
+        Project saved = projects.save(p);
+        if (previous != status) {
+            events.log(saved, ProjectEventType.STATUS_CHANGED, "Estado do projeto: " + statusLabel(previous)
+                    + " → " + statusLabel(status), actor);
+        }
+        return ProjectResponse.detailed(saved);
+    }
+
+    private static String statusLabel(ProjectStatus status) {
+        if (status == null) return "sem estado";
+        return switch (status) {
+            case BACKLOG -> "backlog";
+            case PLANNED -> "planeado";
+            case IN_PROGRESS -> "em curso";
+            case ON_HOLD -> "suspenso";
+            case COMPLETED -> "concluído";
+            case CANCELLED -> "cancelado";
+        };
     }
 
     public ProjectResponse start(UUID id, String actor) {
@@ -239,13 +331,28 @@ public class ProjectService {
 
         project.setStatus(ProjectStatus.IN_PROGRESS);
         project.setUpdatedBy(updatedBy);
-        return ProjectResponse.from(projects.save(project));
+        phases.startFirstPhase(project, updatedBy);
+        Project saved = projects.save(project);
+        events.log(saved, ProjectEventType.STARTED, "Projeto iniciado"
+                + (saved.getCurrentPhaseName() == null ? "" : " na fase " + saved.getCurrentPhaseName()), actor);
+        return ProjectResponse.detailed(saved);
     }
 
     public ProjectResponse complete(UUID id, String actor) {
+        return complete(id, null, actor);
+    }
+
+    /**
+     * Conclusão. Com {@code closure}, exige resumo e pelo menos uma lição, e grava o relatório final. As fases
+     * ainda abertas ficam concluídas e o progresso passa a 100.
+     */
+    public ProjectResponse complete(UUID id, ProjectManagementDtos.ClosureRequest closure, String actor) {
         Project project = findById(id);
         if (project.getStatus() != ProjectStatus.IN_PROGRESS) {
             throw new BadRequestException("Apenas projetos em progresso podem ser concluídos");
+        }
+        if (closure != null) {
+            closures.validate(closure);
         }
 
         LocalDate completionDate = LocalDate.now();
@@ -264,9 +371,16 @@ public class ProjectService {
         }
         execution.setProgress(100);
 
+        phases.closeOpenPhases(project, updatedBy);
         project.setStatus(ProjectStatus.COMPLETED);
         project.setUpdatedBy(updatedBy);
-        return ProjectResponse.from(projects.save(project));
+        Project saved = projects.save(project);
+        if (closure != null) {
+            closures.record(saved, closure, updatedBy);
+        }
+        events.log(saved, ProjectEventType.COMPLETED, "Projeto concluído"
+                + (closure == null ? "" : " com relatório de encerramento"), actor);
+        return ProjectResponse.detailed(saved);
     }
 
     public void delete(UUID id) {

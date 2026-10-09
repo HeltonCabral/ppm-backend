@@ -13,13 +13,17 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.ColumnDefault;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
+import org.hibernate.type.SqlTypes;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -178,6 +182,11 @@ public class Demand extends BaseEntity {
     /** Tipo de origem do planeamento personalizado (informativo). Nulo quando segue o Tipo. */
     @Column(name = "custom_planning_base_type_id")
     private UUID customPlanningBaseTypeId;
+
+    /** Valores dos campos específicos do Tipo, por {@code key} (ver {@code PhaseModel.fields}). */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "type_fields")
+    private Map<String, Object> typeFields = new LinkedHashMap<>();
 
     @OneToMany(mappedBy = "demand", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore

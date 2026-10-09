@@ -12,7 +12,6 @@ import cvt.cv.ppmbackend.entity.PhaseDefinition;
 import cvt.cv.ppmbackend.enums.CapacityStatus;
 import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import cvt.cv.ppmbackend.repository.DemandPlanningCycleRepository;
-import cvt.cv.ppmbackend.repository.DemandProfileRequirementRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,19 +44,16 @@ public class DemandCapacityAnalysisService {
 
     private final DemandPlanningCycleRepository planningCycles;
     private final DemandPlanningCycleService planningCycleService;
-    private final DemandProfileRequirementRepository profileRequirements;
-    private final DemandResourceDerivationService resourceDerivation;
+    private final DemandRequirementsResolver requirements;
     private final CapacityCalculator calculator;
 
     public DemandCapacityAnalysisService(DemandPlanningCycleRepository planningCycles,
             DemandPlanningCycleService planningCycleService,
-            DemandProfileRequirementRepository profileRequirements,
-            DemandResourceDerivationService resourceDerivation,
+            DemandRequirementsResolver requirements,
             CapacityCalculator calculator) {
         this.planningCycles = planningCycles;
         this.planningCycleService = planningCycleService;
-        this.profileRequirements = profileRequirements;
-        this.resourceDerivation = resourceDerivation;
+        this.requirements = requirements;
         this.calculator = calculator;
     }
 
@@ -71,7 +67,7 @@ public class DemandCapacityAnalysisService {
                     "Sem início previsto/duração: calcule a complexidade da demanda.", List.of());
         }
 
-        List<DemandProfileRequirement> ownRequirements = requirementsForDemand(demand);
+        List<DemandProfileRequirement> ownRequirements = requirements.forDemand(demand);
         if (ownRequirements.isEmpty()) {
             return new CapacityAnalysisResponse(CapacityStatus.OK, null, null, null, null, List.of());
         }
@@ -141,27 +137,7 @@ public class DemandCapacityAnalysisService {
         if (liveCycles.isEmpty()) {
             return List.of();
         }
-        Map<UUID, Demand> demandsById = new LinkedHashMap<>();
-        for (DemandPlanningCycle cycle : liveCycles) {
-            Demand demand = cycle.getDemand();
-            demandsById.putIfAbsent(demand.getId(), demand);
-        }
-        List<DemandProfileRequirement> out = new ArrayList<>();
-        for (Demand demand : demandsById.values()) {
-            out.addAll(requirementsForDemand(demand));
-        }
-        return out;
-    }
-
-    /**
-     * Requisitos de uma Demanda: derivados dos perfis das fases do seu Tipo quando configurados;
-     * caso contrário, os requisitos legados persistidos (compatibilidade com Demandas antigas).
-     */
-    private List<DemandProfileRequirement> requirementsForDemand(Demand demand) {
-        if (resourceDerivation.hasDerivedResources(demand)) {
-            return resourceDerivation.deriveRequirements(demand);
-        }
-        return profileRequirements.findByDemand_IdOrderByProfile_NameAsc(demand.getId());
+        return requirements.forDemands(liveCycles.stream().map(DemandPlanningCycle::getDemand).toList());
     }
 
     private List<CompetingDemand> competingDemands(List<DemandProfileRequirement> reqs, Set<YearMonth> months) {

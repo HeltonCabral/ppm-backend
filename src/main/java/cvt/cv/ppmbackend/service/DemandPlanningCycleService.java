@@ -167,6 +167,10 @@ public class DemandPlanningCycleService {
         if (to == PRIORITIZED) {
             validateCommitteeReadiness(cycle);
         }
+        // Submeter o rascunho exige os campos obrigatórios visíveis do Tipo; arquivar ou pedir revisão não.
+        if (from == DRAFT && to == IN_ANALYSIS) {
+            TypeFieldRules.requireVisibleRequired(cycle.getDemand());
+        }
         BigDecimal previousScore = cycle.getScoreTotal();
         scoreLifecycle.applyStatusTransition(cycle, from, to, reason);
         cycle.setStatus(to);

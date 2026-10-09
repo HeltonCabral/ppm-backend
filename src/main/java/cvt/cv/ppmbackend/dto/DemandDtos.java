@@ -23,6 +23,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -97,7 +98,9 @@ public final class DemandDtos {
                         @Valid List<DemandProfileRequirementInput> profileRequirements,
                         @Valid List<DemandSuccessCriterionInput> successCriteria,
                         @Valid List<DirectionAreaInput> areas,
-                        JsonNode customPlanning) {
+                        JsonNode customPlanning,
+                        /** Presente: substitui o objeto inteiro; ausente: mantém-se (ou limpa-se se o Tipo mudar). */
+                        JsonNode typeFields) {
         }
 
         /**
@@ -151,7 +154,9 @@ public final class DemandDtos {
                         @Valid List<DemandProfileRequirementInput> profileRequirements,
                         @Valid List<DemandSuccessCriterionInput> successCriteria,
                         @Valid List<DirectionAreaInput> areas,
-                        JsonNode customPlanning) {
+                        JsonNode customPlanning,
+                        /** Presente: substitui o objeto inteiro; ausente: mantém-se (ou limpa-se se o Tipo mudar). */
+                        JsonNode typeFields) {
         }
 
         public record Patch(
@@ -191,7 +196,9 @@ public final class DemandDtos {
                         @Valid List<DemandProfileRequirementInput> profileRequirements,
                         @Valid List<DemandSuccessCriterionInput> successCriteria,
                         @Valid List<DirectionAreaInput> areas,
-                        JsonNode customPlanning) {
+                        JsonNode customPlanning,
+                        /** Presente: substitui o objeto inteiro; ausente: mantém-se (ou limpa-se se o Tipo mudar). */
+                        JsonNode typeFields) {
         }
 
         public record AssignCommitteeRequest(@NotNull UUID committeeId) {
@@ -354,6 +361,7 @@ public final class DemandDtos {
                         List<DemandDependencyDtos.Response> dependencies,
                         List<DirectionAreaResponse> areas,
                         CustomPlanningResponse customPlanning,
+                        Map<String, Object> typeFields,
                         DemandPermissions permissions) {
         }
 

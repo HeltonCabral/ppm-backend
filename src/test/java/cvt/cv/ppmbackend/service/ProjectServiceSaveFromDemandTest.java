@@ -47,13 +47,26 @@ class ProjectServiceSaveFromDemandTest {
     private StrategicPillarRepository strategicPillars;
     @Mock
     private StrategicObjectiveRepository strategicObjectives;
+    @Mock
+    private DemandProjectInheritanceService inheritance;
+    @Mock
+    private ProjectPhaseService phases;
+    @Mock
+    private ProjectEventService events;
+    @Mock
+    private ProjectClosureService closures;
+    @Mock
+    private ProjectGuard guard;
+    @Mock
+    private cvt.cv.ppmbackend.repository.PhaseModelRepository phaseModels;
 
     private ProjectService service;
 
     @BeforeEach
     void setUp() {
         service = new ProjectService(projects, rankHistory, lookups, suppliers, programs, strategicPlans,
-                operationalPlans, strategicPillars, strategicObjectives);
+                operationalPlans, strategicPillars, strategicObjectives, inheritance, phases, events, closures, guard,
+                phaseModels);
         when(projects.save(any(Project.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 

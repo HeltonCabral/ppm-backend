@@ -1,5 +1,6 @@
 package cvt.cv.ppmbackend.service;
 
+import cvt.cv.ppmbackend.dto.CapacityDtos.PortfolioCapacity;
 import cvt.cv.ppmbackend.dto.CommitteeDecisionDtos.*;
 import cvt.cv.ppmbackend.entity.Demand;
 import cvt.cv.ppmbackend.entity.DemandDependency;
@@ -13,7 +14,6 @@ import cvt.cv.ppmbackend.exception.BadRequestException;
 import cvt.cv.ppmbackend.exception.ResourceNotFoundException;
 import cvt.cv.ppmbackend.repository.DemandDependencyRepository;
 import cvt.cv.ppmbackend.repository.DemandPlanningCycleRepository;
-import cvt.cv.ppmbackend.repository.DemandProfileRequirementRepository;
 import cvt.cv.ppmbackend.repository.StrategicPlanRepository;
 import jakarta.transaction.Transactional;
 import org.springframework.data.jpa.domain.Specification;
@@ -35,18 +35,21 @@ public class CommitteeDecisionService {
 
     private final DemandPlanningCycleRepository planningCycles;
     private final StrategicPlanRepository strategicPlans;
-    private final DemandProfileRequirementRepository profileRequirements;
+    private final DemandRequirementsResolver profileRequirements;
     private final DemandDependencyRepository dependencies;
+    private final CapacityCalculator capacityCalculator;
 
     public CommitteeDecisionService(
             DemandPlanningCycleRepository planningCycles,
             StrategicPlanRepository strategicPlans,
-            DemandProfileRequirementRepository profileRequirements,
-            DemandDependencyRepository dependencies) {
+            DemandRequirementsResolver profileRequirements,
+            DemandDependencyRepository dependencies,
+            CapacityCalculator capacityCalculator) {
         this.planningCycles = planningCycles;
         this.strategicPlans = strategicPlans;
         this.profileRequirements = profileRequirements;
         this.dependencies = dependencies;
+        this.capacityCalculator = capacityCalculator;
     }
 
     public DecisionDashboardResponse dashboard(UUID strategicPlanId) {
@@ -63,9 +66,8 @@ public class CommitteeDecisionService {
                 .map(c -> c.getDemand().getId())
                 .collect(java.util.stream.Collectors.toSet());
 
-        List<DemandProfileRequirement> requirements = scenarioDemandIds.isEmpty()
-                ? List.of()
-                : profileRequirements.findByDemand_IdIn(scenarioDemandIds);
+        List<DemandProfileRequirement> requirements = profileRequirements.forDemands(
+                scenarioCycles.stream().map(DemandPlanningCycle::getDemand).toList());
         List<DemandDependency> blockingDependencies = scenarioDemandIds.isEmpty()
                 ? List.of()
                 : dependencies.findByDemand_IdIn(scenarioDemandIds).stream()
@@ -123,36 +125,14 @@ public class CommitteeDecisionService {
         return ELIGIBLE_STATUSES.contains(cycle.getStatus());
     }
 
+    /**
+     * Mesmo cálculo mensal da análise de plano/cenário: necessário = carga no pico de cada perfil;
+     * perfis em défice = perfis fora dos limites (estado diferente de OK).
+     */
     private CapacityCalculation capacity(List<DemandProfileRequirement> requirements) {
-        Map<UUID, BigDecimal> requiredByProfile = new HashMap<>();
-        Map<UUID, Profile> profilesById = new HashMap<>();
-
-        for (DemandProfileRequirement requirement : requirements) {
-            Profile profile = requirement.getProfile();
-            profilesById.put(profile.getId(), profile);
-            BigDecimal required = BigDecimal.valueOf(requirement.getRequiredQuantity());
-            requiredByProfile.merge(profile.getId(), required, BigDecimal::add);
-        }
-
-        BigDecimal available = profilesById.values().stream()
-                .map(Profile::getAvailableCapacity)
-                .filter(Objects::nonNull)
-                .map(BigDecimal::valueOf)
-                .reduce(BigDecimal.ZERO, BigDecimal::add)
-                .setScale(2, RoundingMode.HALF_UP);
-        BigDecimal required = requiredByProfile.values().stream()
-                .reduce(BigDecimal.ZERO, BigDecimal::add)
-                .setScale(2, RoundingMode.HALF_UP);
-        int deficitProfiles = (int) requiredByProfile.entrySet().stream()
-                .filter(entry -> entry.getValue().compareTo(BigDecimal.valueOf(
-                        Optional.ofNullable(profilesById.get(entry.getKey()).getAvailableCapacity()).orElse(0))) > 0)
-                .count();
-        BigDecimal coverage = required.signum() == 0
-                ? null
-                : available.multiply(BigDecimal.valueOf(100))
-                        .divide(required, 2, RoundingMode.HALF_UP);
-
-        return new CapacityCalculation(available, required, coverage, deficitProfiles);
+        PortfolioCapacity summary = capacityCalculator.summarize(requirements);
+        return new CapacityCalculation(summary.totalAvailableCapacity(), summary.totalRequiredLoad(),
+                summary.coveragePercentage(), summary.profilesOutOfBounds());
     }
 
     private List<AttentionPoint> attentionPoints(
@@ -164,7 +144,7 @@ public class CommitteeDecisionService {
         if (capacity.deficitProfiles() > 0) {
             points.add(new AttentionPoint(
                     "CAPACITY_DEFICIT", "DANGER",
-                    capacity.deficitProfiles() + " perfil(is) apresentam défice de capacidade",
+                    capacity.deficitProfiles() + " perfil(is) fora dos limites de capacidade",
                     capacity.deficitProfiles()));
         }
         if (blockedDemands > 0) {

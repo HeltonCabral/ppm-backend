@@ -2,6 +2,7 @@ package cvt.cv.ppmbackend.service;
 
 import cvt.cv.ppmbackend.config.CapacityThresholdsProperties;
 import cvt.cv.ppmbackend.dto.CapacityDtos.PeriodUtilization;
+import cvt.cv.ppmbackend.dto.CapacityDtos.PortfolioCapacity;
 import cvt.cv.ppmbackend.dto.CapacityDtos.ProfileUtilization;
 import cvt.cv.ppmbackend.entity.Demand;
 import cvt.cv.ppmbackend.entity.DemandCustomPhase;
@@ -64,6 +65,45 @@ public class CapacityCalculator {
             out.put(profile.getId(), computeForProfile(profile, entry.getValue()));
         }
         return out;
+    }
+
+    /**
+     * Agregado de capacidade de um conjunto de requisitos: estado pior, pico e período crítico do perfil
+     * mais carregado, capacidade disponível e carga no pico somadas pelos perfis, e perfis fora dos
+     * limites (estado diferente de OK).
+     */
+    public PortfolioCapacity summarize(Collection<DemandProfileRequirement> requirements) {
+        BigDecimal totalAvailable = BigDecimal.ZERO;
+        BigDecimal totalLoad = BigDecimal.ZERO;
+        BigDecimal peakUtilization = null;
+        YearMonth criticalPeriod = null;
+        CapacityStatus overall = CapacityStatus.OK;
+        int outOfBounds = 0;
+        List<ProfileUtilization> profiles = new ArrayList<>(profileUtilizations(requirements).values());
+        for (ProfileUtilization util : profiles) {
+            if (util.availableCapacity() != null && util.availableCapacity() > 0) {
+                totalAvailable = totalAvailable.add(BigDecimal.valueOf(util.availableCapacity()));
+            }
+            if (util.requiredLoadAtPeak() != null) {
+                totalLoad = totalLoad.add(util.requiredLoadAtPeak());
+            }
+            if (util.peakUtilization() != null
+                    && (peakUtilization == null || util.peakUtilization().compareTo(peakUtilization) > 0)) {
+                peakUtilization = util.peakUtilization();
+                criticalPeriod = util.criticalPeriod();
+            }
+            overall = CapacityStatus.worst(overall, util.status());
+            if (util.status() != CapacityStatus.OK) {
+                outOfBounds++;
+            }
+        }
+        profiles.sort(Comparator
+                .comparingInt((ProfileUtilization p) -> -p.status().severity())
+                .thenComparing(p -> p.peakUtilization() == null ? BigDecimal.ZERO : p.peakUtilization(),
+                        Comparator.reverseOrder()));
+        return new PortfolioCapacity(overall, peakUtilization, criticalPeriod,
+                totalAvailable.setScale(2, RoundingMode.HALF_UP), totalLoad.setScale(2, RoundingMode.HALF_UP),
+                outOfBounds, List.copyOf(profiles));
     }
 
     /** Estado agregado (pior) de uma Demanda dado o estado dos perfis que requer. */

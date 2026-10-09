@@ -60,6 +60,7 @@ public final class AccessDtos {
             List<String> permissions,
             boolean viewAll,
             boolean editAll,
-            boolean filterEnabled) {
+            boolean filterEnabled,
+            boolean projectFilterEnabled) {
     }
 }

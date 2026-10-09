@@ -14,6 +14,7 @@ public class AccessControlProperties {
 
     private final Toggle directionFilter = new Toggle();
     private final Toggle adminGuard = new Toggle();
+    private final Toggle projectFilter = new Toggle();
 
     /** {@code ppm.access.direction-filter.enabled}: aplica a regra de ver/editar demandas por direção. */
     public Toggle getDirectionFilter() { return directionFilter; }
@@ -24,6 +25,11 @@ public class AccessControlProperties {
     public boolean directionFilterEnabled() { return directionFilter.isEnabled(); }
 
     public boolean adminGuardEnabled() { return adminGuard.isEnabled(); }
+
+    /** {@code ppm.access.project-filter.enabled}: escritas nos projetos exigem a regra "Editar". */
+    public Toggle getProjectFilter() { return projectFilter; }
+
+    public boolean projectFilterEnabled() { return projectFilter.isEnabled(); }
 
     public static class Toggle {
         private boolean enabled;

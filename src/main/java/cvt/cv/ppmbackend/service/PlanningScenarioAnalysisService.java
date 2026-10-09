@@ -1,5 +1,6 @@
 package cvt.cv.ppmbackend.service;
 
+import cvt.cv.ppmbackend.dto.CapacityDtos.PortfolioCapacity;
 import cvt.cv.ppmbackend.dto.CapacityDtos.ProfileUtilization;
 import cvt.cv.ppmbackend.dto.PlanningScenarioDtos.AnalysisResponse;
 import cvt.cv.ppmbackend.dto.PlanningScenarioDtos.CapacityAnalysis;
@@ -29,7 +30,6 @@ import cvt.cv.ppmbackend.enums.InclusionSource;
 import cvt.cv.ppmbackend.exception.BadRequestException;
 import cvt.cv.ppmbackend.exception.ResourceNotFoundException;
 import cvt.cv.ppmbackend.repository.DemandDependencyRepository;
-import cvt.cv.ppmbackend.repository.DemandProfileRequirementRepository;
 import cvt.cv.ppmbackend.repository.PlanningScenarioItemRepository;
 import cvt.cv.ppmbackend.repository.StrategicPlanRepository;
 import org.springframework.stereotype.Service;
@@ -62,7 +62,7 @@ public class PlanningScenarioAnalysisService {
     private final PlanningScenarioService scenarioService;
     private final PlanningScenarioItemRepository items;
     private final ScenarioPoolService pool;
-    private final DemandProfileRequirementRepository profileRequirements;
+    private final DemandRequirementsResolver requirements;
     private final DemandDependencyRepository dependencies;
     private final DemandCapacityAnalysisService capacityAnalysis;
     private final CapacityCalculator capacityCalculator;
@@ -70,13 +70,13 @@ public class PlanningScenarioAnalysisService {
 
     public PlanningScenarioAnalysisService(PlanningScenarioService scenarioService,
             PlanningScenarioItemRepository items, ScenarioPoolService pool,
-            DemandProfileRequirementRepository profileRequirements, DemandDependencyRepository dependencies,
+            DemandRequirementsResolver requirements, DemandDependencyRepository dependencies,
             DemandCapacityAnalysisService capacityAnalysis, CapacityCalculator capacityCalculator,
             StrategicPlanRepository strategicPlans) {
         this.scenarioService = scenarioService;
         this.items = items;
         this.pool = pool;
-        this.profileRequirements = profileRequirements;
+        this.requirements = requirements;
         this.dependencies = dependencies;
         this.capacityAnalysis = capacityAnalysis;
         this.capacityCalculator = capacityCalculator;
@@ -181,50 +181,22 @@ public class PlanningScenarioAnalysisService {
     }
 
     private CapacityAnalysis capacity(List<ScenarioDemandSnapshot> included) {
-        Set<UUID> demandIds = included.stream().map(ScenarioDemandSnapshot::demandId).collect(Collectors.toSet());
-        List<DemandProfileRequirement> requirements = demandIds.isEmpty()
-                ? List.of()
-                : profileRequirements.findByDemand_IdIn(demandIds);
-        Map<UUID, ProfileUtilization> utilizations = capacityCalculator.profileUtilizations(requirements);
-
-        BigDecimal totalAvailable = BigDecimal.ZERO;
-        BigDecimal totalLoad = BigDecimal.ZERO;
-        BigDecimal peakUtilization = null;
-        YearMonth criticalPeriod = null;
-        CapacityStatus overall = CapacityStatus.OK;
-        int outOfBounds = 0;
-        List<ProfileCapacityInfo> profileInfos = new ArrayList<>(utilizations.size());
-        for (ProfileUtilization util : utilizations.values()) {
-            profileInfos.add(new ProfileCapacityInfo(
-                    util.profileId(), util.profileName(),
-                    util.availableCapacity(), util.simultaneousDemandCapacity(),
-                    util.status(), util.peakUtilization(), util.criticalPeriod(),
-                    util.requiredLoadAtPeak(), util.simultaneousDemandsAtPeak(), util.periods()));
-            if (util.availableCapacity() != null && util.availableCapacity() > 0) {
-                totalAvailable = totalAvailable.add(BigDecimal.valueOf(util.availableCapacity()));
-            }
-            if (util.requiredLoadAtPeak() != null) {
-                totalLoad = totalLoad.add(util.requiredLoadAtPeak());
-            }
-            if (util.peakUtilization() != null
-                    && (peakUtilization == null || util.peakUtilization().compareTo(peakUtilization) > 0)) {
-                peakUtilization = util.peakUtilization();
-                criticalPeriod = util.criticalPeriod();
-            }
-            overall = CapacityStatus.worst(overall, util.status());
-            if (util.status() != CapacityStatus.OK) {
-                outOfBounds++;
-            }
-        }
-        profileInfos.sort(Comparator
-                .comparingInt((ProfileCapacityInfo p) -> -p.status().severity())
-                .thenComparing(p -> p.peakUtilization() == null ? BigDecimal.ZERO : p.peakUtilization(),
-                        Comparator.reverseOrder()));
+        // Mesma regra da análise de capacidade da Demanda: perfis derivados do Tipo/planeamento
+        // personalizado quando existem, senão os requisitos gravados.
+        List<DemandProfileRequirement> includedRequirements = requirements.forDemands(
+                included.stream().map(ScenarioDemandSnapshot::demand).toList());
+        PortfolioCapacity summary = capacityCalculator.summarize(includedRequirements);
+        List<ProfileCapacityInfo> profileInfos = summary.profiles().stream()
+                .map(util -> new ProfileCapacityInfo(
+                        util.profileId(), util.profileName(),
+                        util.availableCapacity(), util.simultaneousDemandCapacity(),
+                        util.status(), util.peakUtilization(), util.criticalPeriod(),
+                        util.requiredLoadAtPeak(), util.simultaneousDemandsAtPeak(), util.periods()))
+                .toList();
         return new CapacityAnalysis(
-                overall, peakUtilization, criticalPeriod,
-                totalAvailable.setScale(2, RoundingMode.HALF_UP),
-                totalLoad.setScale(2, RoundingMode.HALF_UP),
-                outOfBounds, List.copyOf(profileInfos));
+                summary.overallStatus(), summary.peakUtilization(), summary.criticalPeriod(),
+                summary.totalAvailableCapacity(), summary.totalRequiredLoad(),
+                summary.profilesOutOfBounds(), profileInfos);
     }
 
     private DependencyAnalysis dependencyAnalysis(List<ScenarioDemandSnapshot> included,

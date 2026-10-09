@@ -1,5 +1,6 @@
 package cvt.cv.ppmbackend.dto;
 
+import cvt.cv.ppmbackend.model.TypeField;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -34,7 +35,10 @@ public final class PhaseModelDtos {
                     @Size(max = 60, message = "O código de direção não pode exceder 60 caracteres.") String>
                     applicableDirectionCodes,
 
-            Boolean active) {
+            Boolean active,
+
+            /** Substitui a lista inteira; {@code null} (ausente no corpo) mantém-na. */
+            List<TypeField> fields) {
     }
 
     public record PhaseRequest(
@@ -76,7 +80,8 @@ public final class PhaseModelDtos {
             List<DirectionRef> applicableDirections,
             List<PhaseResponse> phases,
             Instant createdAt,
-            Instant updatedAt) {
+            Instant updatedAt,
+            List<TypeField> fields) {
     }
 
     public record DirectionRef(

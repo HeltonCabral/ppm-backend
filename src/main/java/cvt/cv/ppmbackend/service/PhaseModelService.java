@@ -202,6 +202,9 @@ public class PhaseModelService {
         model.setName(request.name().trim());
         model.setDescription(request.description() == null ? null : request.description().trim());
         applyApplicableDirections(request, model);
+        if (request.fields() != null) {
+            model.setFields(TypeFieldRules.normalizeDefinitions(request.fields()));
+        }
         boolean nextActive = request.active() == null ? model.isActive() : request.active();
         if (nextActive && !model.getPhases().isEmpty()) {
             model.setActive(true);
@@ -525,7 +528,8 @@ public class PhaseModelService {
                 directions,
                 ordered.stream().map(this::toPhaseResponse).toList(),
                 model.getCreatedAt(),
-                model.getUpdatedAt());
+                model.getUpdatedAt(),
+                TypeFieldRules.definitions(model));
     }
 
     private PhaseResponse toPhaseResponse(PhaseDefinition phase) {

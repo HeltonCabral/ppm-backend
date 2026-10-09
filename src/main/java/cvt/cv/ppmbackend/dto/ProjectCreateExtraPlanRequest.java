@@ -11,5 +11,7 @@ public record ProjectCreateExtraPlanRequest(@NotBlank @Size(max = 180) String na
         @Size(max = 200) String areaName, @NotBlank @Size(max = 150) String domain, UUID supplierId,
         @Size(max = 150) String impactedSystem, @Size(max = 10000) String expectedBenefits,
         @PositiveOrZero BigDecimal budget, LocalDate plannedStartDate, LocalDate plannedEndDate,
-        @NotBlank @Size(max = 10000) String extraPlanJustification) {
+        @NotBlank @Size(max = 10000) String extraPlanJustification,
+        @Size(max = 120) String projectManager, @Size(max = 100) String projectManagerUsername,
+        UUID phaseModelId) {
 }

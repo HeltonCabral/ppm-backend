@@ -72,8 +72,9 @@ public class ProjectController {
 
     @PostMapping("/{id}/complete")
     public ProjectResponse complete(@PathVariable UUID id,
+            @RequestBody(required = false) cvt.cv.ppmbackend.dto.ProjectManagementDtos.CompleteRequest request,
             @RequestHeader(value = "X-User-Id", required = false) String actor) {
-        return projects.complete(id, actor);
+        return projects.complete(id, request == null ? null : request.closure(), actor);
     }
 
     @PostMapping("/{projectId}/reprioritize-execution-rank")

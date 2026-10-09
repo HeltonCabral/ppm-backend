@@ -118,6 +118,7 @@ public class DemandService {
         demand.setCreatedBy(actor(actorId));
         demand.setUpdatedBy(actor(actorId));
         apply(req, demand);
+        demand.setTypeFields(TypeFieldRules.normalizeValues(demand.getType(), req.typeFields()));
         Demand saved = demands.save(demand);
         DemandPlanningCycle cycle = planningCycleService.createInitialCycle(saved, req.strategicPillarId(),
                 req.strategicElementId(), req.strategicObjectiveId(), actor(actorId));
@@ -262,7 +263,8 @@ public class DemandService {
                 profileInputs,
                 criterionInputs,
                 copyDemandAreas(source.getId()),
-                null);
+                null,
+                TypeFieldRules.toNode(source.getTypeFields()));
     }
 
     private boolean copyEnabled(Boolean flag) {
@@ -285,6 +287,7 @@ public class DemandService {
         LocalDate previousDesiredDate = demand.getDesiredDate();
         UUID previousTypeId = demand.getType() == null ? null : demand.getType().getId();
         apply(toCreate(req), demand);
+        applyTypeFields(demand, previousTypeId, req.typeFields());
         handleScoreRelevantChanges(demand, previousScoreInputs);
         invalidateComplexityIfNeeded(demand, previousComplexityInputs,
                 req.participatingDirections() != null || req.profileRequirements() != null);
@@ -331,6 +334,7 @@ public class DemandService {
         UUID previousTypeId = d.getType() == null ? null : d.getType().getId();
         Create merged = mergePatch(d, req);
         apply(merged, d);
+        applyTypeFields(d, previousTypeId, req.typeFields());
         handleScoreRelevantChanges(d, previousScoreInputs);
         invalidateComplexityIfNeeded(d, previousComplexityInputs,
                 req.participatingDirections() != null || req.profileRequirements() != null);
@@ -948,6 +952,7 @@ public class DemandService {
                 att, participatingDirs, profileRequirementResponses,
                 supplierSummaries, successCriteriaResponses, dependencyResponses,
                 listDemandAreas(d.getId()), customPlanning.buildResponse(d),
+                d.getTypeFields() == null ? Map.of() : d.getTypeFields(),
                 access.permissionsFor(d,
                         participatingDirs.stream().map(ParticipatingDirectionResponse::directionCode).toList(),
                         currentPlanningCycle));
@@ -1011,6 +1016,19 @@ public class DemandService {
         UUID currentTypeId = demand.getType() == null ? null : demand.getType().getId();
         if (!Objects.equals(previousTypeId, currentTypeId)) {
             profileRequirements.handleTypeChange(demand);
+        }
+    }
+
+    /**
+     * {@code typeFields} num update/patch: presente substitui o objeto inteiro (validado contra o Tipo
+     * atual); ausente mantém-se, exceto se o Tipo mudou — os valores do Tipo anterior não se aplicam.
+     */
+    private void applyTypeFields(Demand demand, UUID previousTypeId, com.fasterxml.jackson.databind.JsonNode node) {
+        UUID currentTypeId = demand.getType() == null ? null : demand.getType().getId();
+        if (node != null) {
+            demand.setTypeFields(TypeFieldRules.normalizeValues(demand.getType(), node));
+        } else if (!Objects.equals(previousTypeId, currentTypeId)) {
+            demand.setTypeFields(new LinkedHashMap<>());
         }
     }
 
@@ -1268,6 +1286,7 @@ public class DemandService {
                 p.profileRequirements(),
                 p.successCriteria(),
                 p.areas(),
+                null,
                 null);
     }
 
@@ -1277,7 +1296,7 @@ public class DemandService {
                 u.problemStatement(), u.desiredOutcome(), u.proposedResponse(), u.urgency(), u.estimatedBudget(),
                 u.desiredDate(), u.mandatoryDeadline(), u.notes(), u.risksIdentified(),
                 u.dependenciesIdentified(), u.dependenciesCount(),
-                null, u.participatingDirections(), u.profileRequirements(), u.successCriteria(), u.areas(), null);
+                null, u.participatingDirections(), u.profileRequirements(), u.successCriteria(), u.areas(), null, null);
     }
 
     private void validateDates(LocalDate start, LocalDate end) {

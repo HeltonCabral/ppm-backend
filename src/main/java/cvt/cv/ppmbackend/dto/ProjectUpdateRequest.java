@@ -26,5 +26,6 @@ public record ProjectUpdateRequest(@NotBlank @Size(max = 180) String name, @Size
                 ExecutiveStatus riskStatus, ExecutiveStatus valueStatus,
                 RiskLevel risk,
                 @Size(max = 10000) String delayReasons,
-                @Size(max = 10000) String executionNotes) {
+                @Size(max = 10000) String executionNotes,
+                @Size(max = 100) String projectManagerUsername) {
 }

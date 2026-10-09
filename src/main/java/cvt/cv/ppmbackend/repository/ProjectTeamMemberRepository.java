@@ -8,4 +8,6 @@ import java.util.UUID;
 
 public interface ProjectTeamMemberRepository extends JpaRepository<ProjectTeamMember, UUID> {
     List<ProjectTeamMember> findByProjectId(UUID projectId);
+
+    List<ProjectTeamMember> findByProjectProfileId(UUID projectProfileId);
 }

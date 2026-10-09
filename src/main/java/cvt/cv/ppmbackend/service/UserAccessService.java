@@ -66,7 +66,7 @@ public class UserAccessService {
         UserAccess access = current();
         return new MeAccessResponse(access.userName(), access.directions(),
                 access.permissions().stream().sorted().toList(), access.viewAll(), access.editAll(),
-                properties.directionFilterEnabled());
+                properties.directionFilterEnabled(), properties.projectFilterEnabled());
     }
 
     /** Endpoints de administração das direções: só exige a transaction quando a proteção está ligada. */

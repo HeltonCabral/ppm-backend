@@ -37,8 +37,9 @@ class DemandCapacityAnalysisServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new DemandCapacityAnalysisService(planningCycles, planningCycleService, profileRequirements,
-                resourceDerivation, calculator);
+        service = new DemandCapacityAnalysisService(planningCycles, planningCycleService,
+                new DemandRequirementsResolver(resourceDerivation, profileRequirements),
+                calculator);
     }
 
     @Test

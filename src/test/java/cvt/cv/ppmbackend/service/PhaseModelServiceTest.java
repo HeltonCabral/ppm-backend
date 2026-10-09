@@ -126,7 +126,7 @@ class PhaseModelServiceTest {
         when(models.existsByCodeIgnoreCaseAndIdNot("PROJ_TI", model.getId())).thenReturn(false);
         when(phaseProfiles.findByPhaseModelId(model.getId())).thenReturn(List.of(phaseProfile));
 
-        ModelRequest request = new ModelRequest("PROJ_TI", "Projeto TI", null, List.of(), null);
+        ModelRequest request = new ModelRequest("PROJ_TI", "Projeto TI", null, List.of(), null, null);
 
         assertThatThrownBy(() -> service.update(model.getId(), request))
                 .isInstanceOf(DomainException.class)

@@ -1,9 +1,12 @@
 package cvt.cv.ppmbackend.service;
 
+import cvt.cv.ppmbackend.config.CapacityThresholdsProperties;
 import cvt.cv.ppmbackend.dto.DemandCommitteeDashboardDtos.CommitteeDashboardResponse;
 import cvt.cv.ppmbackend.dto.DemandCommitteeDashboardDtos.PortfolioAttentionPoint;
 import cvt.cv.ppmbackend.entity.Demand;
 import cvt.cv.ppmbackend.entity.DemandPlanningCycle;
+import cvt.cv.ppmbackend.entity.DemandProfileRequirement;
+import cvt.cv.ppmbackend.entity.Profile;
 import cvt.cv.ppmbackend.entity.StrategicPlan;
 import cvt.cv.ppmbackend.enums.DemandNature;
 import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
@@ -25,6 +28,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -38,14 +42,95 @@ class DemandCommitteeDashboardServiceTest {
     @Mock
     private DemandProfileRequirementRepository profileRequirements;
     @Mock
+    private DemandResourceDerivationService resourceDerivation;
+    @Mock
     private DemandDependencyRepository dependencies;
 
     private DemandCommitteeDashboardService service;
 
     @BeforeEach
     void setUp() {
-        service = new DemandCommitteeDashboardService(
-                strategicPlans, planningCycles, profileRequirements, dependencies);
+        service = new DemandCommitteeDashboardService(strategicPlans, planningCycles,
+                new DemandRequirementsResolver(resourceDerivation, profileRequirements), dependencies,
+                new CapacityCalculator(new CapacityThresholdsProperties()));
+    }
+
+    @Test
+    void restrictedCapacityUsesTheMonthlyCalculation() {
+        UUID planId = planWithCycles(List.of(
+                // Analista: as duas primeiras correm em paralelo (2 em simultâneo, capacidade 1) → crítico.
+                prioritized("2027-01-01", "2027-06-30"),
+                prioritized("2027-01-01", "2027-06-30"),
+                // Arquiteto (capacidade 2): uma no 1.º semestre, outra no 2.º → 1 de 2 em simultâneo → OK.
+                prioritized("2027-01-01", "2027-06-30"),
+                prioritized("2027-07-01", "2027-12-31")));
+        List<DemandPlanningCycle> cycles = planningCycles.findAllByStrategicPlan_Id(planId);
+        Profile analyst = profile("Analista", 1);
+        Profile architect = profile("Arquiteto", 2);
+        requires(cycles.get(0), analyst);
+        requires(cycles.get(1), analyst);
+        requires(cycles.get(2), architect);
+        requires(cycles.get(3), architect);
+
+        PortfolioAttentionPoint restricted = attentionPoint(service.dashboard(planId), "CAPACITY_RESTRICTED");
+
+        assertThat(restricted.severity()).isEqualTo("DANGER");
+        assertThat(restricted.count()).isEqualTo(2);
+        assertThat(restricted.detail()).isEqualTo("Principais perfis fora dos limites: Analista");
+    }
+
+    @Test
+    void restrictedCapacityIsOkWhenNoProfileIsOutOfBounds() {
+        UUID planId = planWithCycles(List.of(
+                prioritized("2027-01-01", "2027-06-30"), prioritized("2027-07-01", "2027-12-31")));
+        List<DemandPlanningCycle> cycles = planningCycles.findAllByStrategicPlan_Id(planId);
+        Profile architect = profile("Arquiteto", 2);
+        requires(cycles.get(0), architect);
+        requires(cycles.get(1), architect);
+
+        PortfolioAttentionPoint restricted = attentionPoint(service.dashboard(planId), "CAPACITY_RESTRICTED");
+
+        assertThat(restricted.severity()).isEqualTo("OK");
+        assertThat(restricted.count()).isZero();
+    }
+
+    private UUID planWithCycles(List<DemandPlanningCycle> cycles) {
+        UUID planId = UUID.randomUUID();
+        StrategicPlan plan = new StrategicPlan();
+        plan.setId(planId);
+        plan.setName("Plano Estratégico 2027-2029");
+        plan.setStartYear(2027);
+        plan.setEndYear(2029);
+        plan.setStatus(StrategicPlanStatus.DRAFT);
+        when(strategicPlans.findById(planId)).thenReturn(Optional.of(plan));
+        when(planningCycles.findAllByStrategicPlan_Id(planId)).thenReturn(cycles);
+        when(dependencies.findByDemand_IdIn(org.mockito.ArgumentMatchers.anyCollection())).thenReturn(List.of());
+        return planId;
+    }
+
+    private DemandPlanningCycle prioritized(String start, String end) {
+        DemandPlanningCycle cycle = cycle(DemandPlanningStatus.PRIORITIZED, DemandNature.NORMAL);
+        cycle.getDemand().setPlannedStartDate(LocalDate.parse(start));
+        cycle.getDemand().setDesiredDate(LocalDate.parse(end));
+        return cycle;
+    }
+
+    private void requires(DemandPlanningCycle cycle, Profile profile) {
+        DemandProfileRequirement requirement = new DemandProfileRequirement();
+        requirement.setDemand(cycle.getDemand());
+        requirement.setProfile(profile);
+        requirement.setRequiredQuantity(1);
+        when(profileRequirements.findByDemand_IdOrderByProfile_NameAsc(cycle.getDemand().getId()))
+                .thenReturn(List.of(requirement));
+    }
+
+    private static Profile profile(String name, int simultaneous) {
+        Profile profile = new Profile();
+        profile.setId(UUID.randomUUID());
+        profile.setName(name);
+        profile.setAvailableCapacity(2);
+        profile.setSimultaneousDemandCapacity(simultaneous);
+        return profile;
     }
 
     @Test
@@ -65,8 +150,6 @@ class DemandCommitteeDashboardServiceTest {
         when(strategicPlans.findById(planId)).thenReturn(Optional.of(plan));
         when(planningCycles.findAllByStrategicPlan_Id(planId))
                 .thenReturn(List.of(approved, awaitingCommittee, draft));
-        when(profileRequirements.findByDemand_IdIn(org.mockito.ArgumentMatchers.anyCollection()))
-                .thenReturn(List.of());
         when(dependencies.findByDemand_IdIn(org.mockito.ArgumentMatchers.anyCollection()))
                 .thenReturn(List.of());
 
@@ -78,7 +161,10 @@ class DemandCommitteeDashboardServiceTest {
         assertThat(mandatory.count()).isEqualTo(1);
         assertThat(mandatory.detail()).isEqualTo("1 legais");
         assertThat(criticalDeadlines.count()).isEqualTo(1);
-        verify(profileRequirements).findByDemand_IdIn(Set.of(awaitingCommittee.getDemand().getId()));
+        // Atenção: só a PRIORITIZED; o resumo do cenário lê a IN_PLAN. A DRAFT nunca é consultada.
+        verify(profileRequirements).findByDemand_IdOrderByProfile_NameAsc(awaitingCommittee.getDemand().getId());
+        verify(profileRequirements).findByDemand_IdOrderByProfile_NameAsc(approved.getDemand().getId());
+        verify(profileRequirements, never()).findByDemand_IdOrderByProfile_NameAsc(draft.getDemand().getId());
         verify(dependencies).findByDemand_IdIn(Set.of(awaitingCommittee.getDemand().getId()));
     }
 
