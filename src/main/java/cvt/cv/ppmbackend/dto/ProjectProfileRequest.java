@@ -9,7 +9,9 @@ import java.util.UUID;
  * @param profileId        perfil de capacidade; obrigatório no {@code POST}, ignorado no {@code PUT}
  *                         (não se troca o perfil de um registo: remove-se e acrescenta-se outro)
  * @param requiredQuantity n.º de pessoas, inteiro ≥ 1
- * @param phases           nomes das fases, pela ordem pretendida; vazio = todo o projeto
+ * @param phases           nomes das fases; usado só sem {@code phaseIds}, contra as fases do projeto
+ * @param phaseIds         fases do projeto (fonte de verdade quando presente, mesmo vazia); vazio = todo o projeto
  */
-public record ProjectProfileRequest(UUID profileId, Integer requiredQuantity, List<String> phases) {
+public record ProjectProfileRequest(UUID profileId, Integer requiredQuantity, List<String> phases,
+        List<UUID> phaseIds) {
 }

@@ -55,6 +55,13 @@ public class ProjectManagementController {
         return phases.list(id);
     }
 
+    /** Personalizar o plano: o plano inteiro e por ordem; as fases ausentes são removidas. */
+    @PutMapping("/projects/{id}/phases")
+    public List<PhaseResponse> replacePlan(@PathVariable UUID id, @RequestBody PhasePlanRequest request,
+            @RequestHeader(value = USER, required = false) String user) {
+        return phases.replacePlan(id, request, user);
+    }
+
     @PutMapping("/projects/{id}/phases/{phaseId}")
     public PhaseResponse updatePhase(@PathVariable UUID id, @PathVariable UUID phaseId,
             @RequestBody PhaseUpdateRequest request, @RequestHeader(value = USER, required = false) String user) {
@@ -132,8 +139,9 @@ public class ProjectManagementController {
     /** Página /risks: {@code ?status=OPEN&level=HIGH,CRITICAL}, de todos os projetos. */
     @GetMapping("/project-risks")
     public List<RiskResponse> searchRisks(@RequestParam(required = false) List<ProjectRiskStatus> status,
-            @RequestParam(required = false) List<RiskLevel> level) {
-        return risks.search(status, level);
+            @RequestParam(required = false) List<RiskLevel> level,
+            @RequestParam(required = false) UUID projectId) {
+        return risks.search(status, level, projectId);
     }
 
     // ----- Pedidos de alteração -----

@@ -6,6 +6,7 @@ import cvt.cv.ppmbackend.dto.ProjectTeamMemberResponse;
 import cvt.cv.ppmbackend.entity.PhaseDefinition;
 import cvt.cv.ppmbackend.entity.Profile;
 import cvt.cv.ppmbackend.entity.Project;
+import cvt.cv.ppmbackend.entity.ProjectPhase;
 import cvt.cv.ppmbackend.entity.ProjectProfile;
 import cvt.cv.ppmbackend.entity.ProjectTeamMember;
 import cvt.cv.ppmbackend.enums.ProjectProfileOrigin;
@@ -97,7 +98,7 @@ public class ProjectProfileService {
         projectProfile.setDirectionCode(truncate(trimToNull(profile.getDirectionCode()), 60));
         projectProfile.setDirectionName(truncate(trimToNull(profile.getDirectionName()), 120));
         projectProfile.setRequiredQuantity(quantity);
-        projectProfile.setPhaseNames(phaseNames(project, request.phases(), List.of()));
+        applyPhases(project, projectProfile, request);
         projectProfile.setOrigin(ProjectProfileOrigin.PROJECT);
         projectProfile.setCreatedBy(actor(actorId));
         projectProfile.setUpdatedBy(actor(actorId));
@@ -125,7 +126,7 @@ public class ProjectProfileService {
         projectProfile.setRequiredQuantity(requireQuantity(request.requiredQuantity()));
         events.log(project, ProjectEventType.PROFILE_CHANGED, "Perfil " + projectProfile.getProfileName()
                 + " alterado: " + previousQuantity + " → " + people(projectProfile.getRequiredQuantity()), actorId);
-        projectProfile.setPhaseNames(phaseNames(project, request.phases(), splitPhases(projectProfile.getPhaseNames())));
+        applyPhases(project, projectProfile, request);
         projectProfile.setUpdatedBy(actor(actorId));
         ProjectProfile saved = projectProfiles.save(projectProfile);
         List<ProjectTeamMemberResponse> members = teamMembers.findByProjectProfileId(saved.getId()).stream()
@@ -257,12 +258,95 @@ public class ProjectProfileService {
         return joined.isEmpty() ? null : joined;
     }
 
+    /**
+     * Fases do perfil. {@code phaseIds} presente (mesmo vazio) é a fonte de verdade e tem de ser deste projeto;
+     * sem ele, os nomes contam contra as fases do projeto; num projeto sem fases, contra o Tipo, como antes.
+     */
+    private void applyPhases(Project project, ProjectProfile profile, ProjectProfileRequest request) {
+        List<ProjectPhase> projectPhases = project.getPhases();
+        if (request.phaseIds() != null) {
+            Map<UUID, ProjectPhase> byId = new LinkedHashMap<>();
+            projectPhases.forEach(p -> byId.put(p.getId(), p));
+            List<ProjectPhase> linked = new ArrayList<>();
+            for (UUID id : request.phaseIds()) {
+                ProjectPhase phase = id == null ? null : byId.get(id);
+                if (phase == null) {
+                    throw new BadRequestException("A fase indicada não pertence ao projeto.");
+                }
+                linked.add(phase);
+            }
+            link(profile, linked);
+            return;
+        }
+        if (!projectPhases.isEmpty()) {
+            Map<String, ProjectPhase> byName = new LinkedHashMap<>();
+            projectPhases.forEach(p -> byName.put(nameKey(p.getName()), p));
+            List<ProjectPhase> linked = new ArrayList<>();
+            for (String raw : request.phases() == null ? List.<String>of() : request.phases()) {
+                String name = trimToNull(raw);
+                if (name == null) {
+                    continue;
+                }
+                ProjectPhase phase = byName.get(nameKey(name));
+                if (phase == null) {
+                    throw new BadRequestException("A fase \"" + name + "\" não existe no projeto.");
+                }
+                linked.add(phase);
+            }
+            link(profile, linked);
+            return;
+        }
+        profile.getPhases().clear();
+        profile.setPhaseNames(phaseNames(project, request.phases(), splitPhases(profile.getPhaseNames())));
+    }
+
+    /** Liga o perfil às fases e atualiza a cache dos nomes. */
+    public static void link(ProjectProfile profile, java.util.Collection<ProjectPhase> phases) {
+        profile.getPhases().clear();
+        profile.getPhases().addAll(phases);
+        refreshNameCache(profile);
+    }
+
+    /** {@code phase_names} = nomes atuais das fases ligadas, pela sequência (nulo sem ligações). */
+    public static void refreshNameCache(ProjectProfile profile) {
+        if (profile.getPhases().isEmpty()) {
+            profile.setPhaseNames(null);
+            return;
+        }
+        String joined = String.join(PHASE_SEPARATOR, linkedNames(profile));
+        profile.setPhaseNames(joined.length() > MAX_PHASE_NAMES ? joined.substring(0, MAX_PHASE_NAMES) : joined);
+    }
+
+    private static List<ProjectPhase> linkedBySequence(ProjectProfile profile) {
+        return profile.getPhases().stream()
+                .sorted(java.util.Comparator.comparing(ProjectPhase::getSequence,
+                        java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
+                .toList();
+    }
+
+    private static List<String> linkedNames(ProjectProfile profile) {
+        return linkedBySequence(profile).stream().map(ProjectPhase::getName).toList();
+    }
+
+    /** Nomes atuais das fases do perfil; em projetos sem fases, os nomes do Tipo guardados. */
+    public static List<String> phaseNamesOf(ProjectProfile profile) {
+        if (!profile.getPhases().isEmpty()) {
+            return linkedNames(profile);
+        }
+        return profile.getProject().getPhases().isEmpty() ? splitPhases(profile.getPhaseNames()) : List.of();
+    }
+
+    /** Comparação de nomes de fase sem distinguir maiúsculas nem espaços. */
+    public static String nameKey(String name) {
+        return name == null ? "" : name.replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
+    }
+
     static ProjectProfileResponse toResponse(ProjectProfile profile, List<ProjectTeamMemberResponse> members) {
         int required = profile.getRequiredQuantity() == null ? 0 : profile.getRequiredQuantity();
         return new ProjectProfileResponse(profile.getId(), profile.getProfile().getId(), profile.getProfileName(),
                 profile.getDirectionCode(), profile.getDirectionName(), profile.getRequiredQuantity(), members.size(),
-                Math.max(0, required - members.size()), splitPhases(profile.getPhaseNames()), members,
-                originOf(profile));
+                Math.max(0, required - members.size()), phaseNamesOf(profile), members, originOf(profile),
+                linkedBySequence(profile).stream().map(ProjectPhase::getId).toList());
     }
 
     public static ProjectProfileOrigin originOf(ProjectProfile profile) {

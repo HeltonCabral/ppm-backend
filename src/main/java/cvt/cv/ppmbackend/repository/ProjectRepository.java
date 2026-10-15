@@ -13,6 +13,7 @@ public interface ProjectRepository extends JpaRepository<Project,java.util.UUID>
  List<Project> findByOperationalPlan_Id(java.util.UUID operationalPlanId);
  long countByStrategicPlan_Id(java.util.UUID strategicPlanId);
  long countByOperationalPlan_Id(java.util.UUID operationalPlanId);
+ long countByStrategicPillar_Id(java.util.UUID strategicPillarId);
 
  @Lock(LockModeType.PESSIMISTIC_WRITE)
  @Query("select p from Project p where p.status not in (cvt.cv.ppmbackend.enums.ProjectStatus.COMPLETED, cvt.cv.ppmbackend.enums.ProjectStatus.CANCELLED) order by p.executionRank asc nulls last, p.createdAt asc")

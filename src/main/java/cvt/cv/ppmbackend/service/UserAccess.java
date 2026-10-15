@@ -19,6 +19,7 @@ public record UserAccess(String userName, Set<String> permissions, List<Directio
     public static final String EDIT_ALL = "demanda_editar_todas";
     public static final String ADMIN_USER_DIRECTIONS = "admin_utilizadores_direcao";
     public static final String PROJECT_EDIT_ALL = "projeto_editar_todos";
+    public static final String PROJECT_VIEW_ALL = "projeto_ver_todos";
 
     /** Acesso de processos internos, sem pedido HTTP (jobs, inicializadores): vê e edita tudo. */
     public static UserAccess system() {

@@ -14,6 +14,10 @@ public interface DemandPlanningCycleRepository
 
     Optional<DemandPlanningCycle> findByDemand_IdAndStrategicPlan_Id(UUID demandId, UUID strategicPlanId);
 
+    long countByStrategicElement_Id(UUID strategicElementId);
+
+    long countByStrategicPillar_Id(UUID strategicPillarId);
+
     Optional<DemandPlanningCycle> findByDemand_IdAndOperationalPlan_Id(UUID demandId, UUID operationalPlanId);
 
     List<DemandPlanningCycle> findAllByDemand_IdOrderByCycleEntryAtDesc(UUID demandId);

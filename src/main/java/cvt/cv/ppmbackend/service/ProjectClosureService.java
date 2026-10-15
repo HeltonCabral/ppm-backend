@@ -85,6 +85,7 @@ public class ProjectClosureService {
     @Transactional(readOnly = true)
     public List<LessonLearnedResponse> allLessons() {
         return lessons.findAllByOrderByCreatedAtDescSequenceAsc().stream()
+                .filter(l -> guard.canView(l.getProject()))
                 .map(l -> new LessonLearnedResponse(l.getId(), l.getProject().getId(), l.getProject().getCode(),
                         l.getProject().getName(),
                         l.getCreatedAt() == null ? null : LocalDate.ofInstant(l.getCreatedAt(), ZoneOffset.UTC),

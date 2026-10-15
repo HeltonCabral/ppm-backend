@@ -55,9 +55,17 @@ public class ProjectRiskService {
     /** Página {@code /risks}: riscos de todos os projetos, filtrados por estado e nível, mais graves primeiro. */
     @Transactional(readOnly = true)
     public List<RiskResponse> search(Collection<ProjectRiskStatus> statuses, Collection<RiskLevel> levels) {
+        return search(statuses, levels, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<RiskResponse> search(Collection<ProjectRiskStatus> statuses, Collection<RiskLevel> levels,
+            UUID projectId) {
         Collection<ProjectRiskStatus> wanted = statuses == null || statuses.isEmpty()
                 ? EnumSet.allOf(ProjectRiskStatus.class) : statuses;
         return risks.findByStatusIn(wanted).stream()
+                .filter(r -> projectId == null || projectId.equals(r.getProject().getId()))
+                .filter(r -> guard.canView(r.getProject()))
                 .filter(r -> levels == null || levels.isEmpty() || levels.contains(level(score(r))))
                 .sorted(Comparator.comparingInt(ProjectRiskService::score).reversed()
                         .thenComparing(ProjectRisk::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))

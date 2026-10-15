@@ -81,6 +81,17 @@ public class ProjectGuard {
         return userAccess.current();
     }
 
+    /**
+     * Regra "Ver" provisória (a definitiva está em ACESSO-PROJETOS-BACKEND.md): sem filtro, tudo; com filtro,
+     * {@code projeto_ver_todos}, {@code projeto_editar_todos} ou o gestor do projeto.
+     */
+    public boolean canView(Project project) {
+        if (!properties.projectFilterEnabled()) {
+            return true;
+        }
+        return userAccess.current().has(UserAccess.PROJECT_VIEW_ALL) || canEdit(project);
+    }
+
     private boolean canEdit(Project project) {
         UserAccess access = userAccess.current();
         return access.has(UserAccess.PROJECT_EDIT_ALL)

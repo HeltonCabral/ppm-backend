@@ -14,4 +14,6 @@ public interface ProjectPhaseRepository extends JpaRepository<ProjectPhase, UUID
     Optional<ProjectPhase> findByIdAndProjectId(UUID id, UUID projectId);
 
     boolean existsByProjectId(UUID projectId);
+
+    List<ProjectPhase> findByProjectIdIn(java.util.Collection<UUID> projectIds);
 }

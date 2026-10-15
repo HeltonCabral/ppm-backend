@@ -51,6 +51,13 @@ public class ProjectController {
         return projects.update(id, request, actor);
     }
 
+    /** Atualiza apenas os campos presentes; para limpar um campo use {@code clear}. */
+    @PatchMapping("/{id}")
+    public ProjectResponse patch(@PathVariable UUID id, @Valid @RequestBody ProjectUpdateRequest request,
+            @RequestHeader(value = "X-User-Id", required = false) String actor) {
+        return projects.update(id, request, actor);
+    }
+
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable UUID id) {

@@ -12,5 +12,5 @@ import java.util.UUID;
  */
 public record ProjectProfileResponse(UUID id, UUID profileId, String profileName, String directionCode,
         String directionName, Integer requiredQuantity, int assignedCount, int missing, List<String> phases,
-        List<ProjectTeamMemberResponse> members, ProjectProfileOrigin origin) {
+        List<ProjectTeamMemberResponse> members, ProjectProfileOrigin origin, List<UUID> phaseIds) {
 }

@@ -51,9 +51,20 @@ public class ProjectProfile extends BaseEntity {
     @Column(name = "required_quantity", nullable = false)
     private Integer requiredQuantity;
 
-    /** Fases em que o perfil é necessário, separadas por "; ", pela ordem indicada. Vazio = todo o projeto. */
+    /**
+     * Cache dos nomes das fases ligadas, separados por "; ". Só é a fonte em projetos sem fases (nomes do Tipo);
+     * caso contrário a fonte é {@link #phases}.
+     */
     @Column(name = "phase_names", length = 1000)
     private String phaseNames;
+
+    /** Fases do projeto em que o perfil trabalha; vazio = todo o projeto. A ligação é por id. */
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(name = "project_profile_phase",
+            joinColumns = @JoinColumn(name = "project_profile_id"),
+            inverseJoinColumns = @JoinColumn(name = "project_phase_id"))
+    @JsonIgnore
+    private java.util.Set<ProjectPhase> phases = new java.util.LinkedHashSet<>();
 
     /** {@code DEMAND} nos registos anteriores a esta coluna (valor por defeito da coluna). */
     @Enumerated(EnumType.STRING)

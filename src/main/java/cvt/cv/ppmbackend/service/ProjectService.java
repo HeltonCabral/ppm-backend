@@ -38,6 +38,10 @@ public class ProjectService {
     private final ProjectClosureService closures;
     private final ProjectGuard guard;
     private final PhaseModelRepository phaseModels;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ProjectCostRepository costs;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ProjectBaselineService baselines;
 
     public ProjectService(ProjectRepository projects, ProjectExecutionRankHistoryRepository rankHistory,
             LookupValueRepository lookups, SupplierRepository suppliers, ProgramRepository programs,
@@ -69,7 +73,9 @@ public class ProjectService {
 
     @Transactional(readOnly = true)
     public ProjectResponse get(UUID id) {
-        return ProjectResponse.detailed(findById(id));
+        Project project = findById(id);
+        if (!guard.canView(project)) throw new ResourceNotFoundException("Projeto não encontrado: " + id);
+        return ProjectResponse.detailed(project);
     }
 
     @Transactional(readOnly = true)
@@ -87,6 +93,12 @@ public class ProjectService {
                     cb.equal(cb.upper(r.join("domain", JoinType.INNER).get("label")), value)));
         }
         if (risk != null) spec = spec.and((r, q, cb) -> cb.equal(r.join("execution", JoinType.INNER).get("risk"), risk));
+        if (guard.filterEnabled()) {
+            UserAccess access = guard.currentUser();
+            if (!access.has(UserAccess.PROJECT_VIEW_ALL) && !access.has(UserAccess.PROJECT_EDIT_ALL)) {
+                spec = spec.and((r, q, cb) -> cb.equal(cb.lower(r.get("projectManagerUsername")), access.userName()));
+            }
+        }
         var pageable = org.springframework.data.domain.PageRequest.of(page, size,
                 org.springframework.data.domain.Sort.by("executionRank").ascending());
         var result = projects.findAll(spec, pageable);
@@ -127,7 +139,10 @@ public class ProjectService {
             project.setProjectManagerUsername(request.projectManagerUsername().trim().toLowerCase(Locale.ROOT));
         }
         project.setPhaseModel(phaseModel);
-        phases.createPhases(project, ProjectPhasePlanner.seedsFromModel(phaseModel), actor(actor));
+        // Fases escolhidas pelo utilizador; senão as ativas do Tipo; sem nenhum dos dois, sem fases.
+        phases.createPhases(project, request.phases() != null && !request.phases().isEmpty()
+                ? ProjectPhaseService.seedsFromPlan(ProjectPhaseService.validatePlan(request.phases()))
+                : ProjectPhasePlanner.seedsFromModel(phaseModel), actor(actor));
         setBaseline(project);
         Project saved = projects.save(project);
         events.log(saved, ProjectEventType.CREATED, "Projeto extra-plano criado", actor);
@@ -135,47 +150,87 @@ public class ProjectService {
     }
 
     public ProjectResponse update(UUID id, ProjectUpdateRequest request, String actor) {
-        Project p = findById(id);
-        if (p.getOrigin() == ProjectOrigin.EXTRA_PLAN && !hasText(request.extraPlanJustification())) {
-            throw new BadRequestException("extraPlanJustification é obrigatória para projeto EXTRA_PLAN");
-        }
-        if (p.getOrigin() != ProjectOrigin.DEMAND && !hasText(request.directionName())) {
-            throw new BadRequestException("directionName é obrigatória para projeto não originado de demanda");
-        }
+        Project p = guard.requireEditable(id);
+        if (request == null) throw new BadRequestException("Pedido inválido");
         String previousManager = p.getProjectManager();
         BigDecimal previousBudget = p.getBudget();
-        p.setName(request.name());
-        p.setDescription(request.description());
-        p.setProgram(entity(programs, request.programId(), "Programa"));
-        p.setStrategicPlan(entity(strategicPlans, request.strategicPlanId(), "Plano estratégico"));
-        p.setOperationalPlan(entity(operationalPlans, request.operationalPlanId(), "Plano operacional"));
-        p.setStrategicPillar(entity(strategicPillars, request.strategicPillarId(), "Pilar estratégico"));
-        p.setStrategicObjective(entity(strategicObjectives, request.strategicObjectiveId(), "Objetivo estratégico"));
+        if (request.name() != null) p.setName(request.name());
+        if (request.description() != null) p.setDescription(request.description());
+        if (request.programId() != null || isClearRequested(request, "programId")) {
+            p.setProgram(request.programId() == null ? null : entity(programs, request.programId(), "Programa"));
+        }
+        if (request.strategicPlanId() != null || isClearRequested(request, "strategicPlanId")) {
+            p.setStrategicPlan(request.strategicPlanId() == null ? null
+                    : entity(strategicPlans, request.strategicPlanId(), "Plano estratégico"));
+        }
+        if (request.operationalPlanId() != null || isClearRequested(request, "operationalPlanId")) {
+            p.setOperationalPlan(request.operationalPlanId() == null ? null
+                    : entity(operationalPlans, request.operationalPlanId(), "Plano operacional"));
+        }
+        if (request.strategicPillarId() != null || isClearRequested(request, "strategicPillarId")) {
+            p.setStrategicPillar(request.strategicPillarId() == null ? null
+                    : entity(strategicPillars, request.strategicPillarId(), "Pilar estratégico"));
+        }
+        if (request.strategicObjectiveId() != null || isClearRequested(request, "strategicObjectiveId")) {
+            p.setStrategicObjective(request.strategicObjectiveId() == null ? null
+                    : entity(strategicObjectives, request.strategicObjectiveId(), "Objetivo estratégico"));
+        }
         if (p.getOrigin() != ProjectOrigin.DEMAND) {
-            p.setDirectionCode(trim(request.directionCode()));
-            p.setDirectionName(request.directionName().trim());
-            p.setAreaCode(trim(request.areaCode()));
-            p.setAreaName(trim(request.areaName()));
+            if (request.directionCode() != null || isClearRequested(request, "directionCode")) {
+                p.setDirectionCode(trim(request.directionCode()));
+            }
+            if (request.directionName() != null || isClearRequested(request, "directionName")) {
+                p.setDirectionName(request.directionName() == null ? null : request.directionName().trim());
+            }
+            if (request.areaCode() != null || isClearRequested(request, "areaCode")) {
+                p.setAreaCode(trim(request.areaCode()));
+            }
+            if (request.areaName() != null || isClearRequested(request, "areaName")) {
+                p.setAreaName(request.areaName() == null ? null : request.areaName().trim());
+            }
         }
-        p.setDomain(resolveDomain(request.domain()));
-        p.setMainSupplier(entity(suppliers, request.supplierId(), "Fornecedor"));
-        p.setImpactedSystem(request.impactedSystem());
-        p.setExpectedBenefits(request.expectedBenefits());
-        p.setBudget(request.budget());
-        //p.setStatus(request.status());
-        p.setProjectPhase(entity(lookups, request.projectPhaseId(), "Fase do projeto"));
-        if (request.projectManager() != null) p.setProjectManager(request.projectManager().trim());
-        if (request.projectManagerUsername() != null) {
-            p.setProjectManagerUsername(hasText(request.projectManagerUsername())
-                    ? request.projectManagerUsername().trim().toLowerCase(Locale.ROOT) : null);
+        if (request.domain() != null) p.setDomain(resolveDomain(request.domain()));
+        if (request.supplierId() != null || isClearRequested(request, "supplierId")) {
+            p.setMainSupplier(request.supplierId() == null ? null : entity(suppliers, request.supplierId(), "Fornecedor"));
         }
-        p.setExtraPlanJustification(trim(request.extraPlanJustification()));
+        if (request.impactedSystem() != null || isClearRequested(request, "impactedSystem")) {
+            p.setImpactedSystem(request.impactedSystem());
+        }
+        if (request.expectedBenefits() != null || isClearRequested(request, "expectedBenefits")) {
+            p.setExpectedBenefits(request.expectedBenefits());
+        }
+        if (request.budget() != null || isClearRequested(request, "budget")) {
+            p.setBudget(request.budget());
+        }
+        if (request.projectPhaseId() != null || isClearRequested(request, "projectPhaseId")) {
+            p.setProjectPhase(request.projectPhaseId() == null ? null : entity(lookups, request.projectPhaseId(), "Fase do projeto"));
+        }
+        if (request.projectManager() != null || isClearRequested(request, "projectManager")) {
+            p.setProjectManager(request.projectManager() == null ? null : request.projectManager().trim());
+        }
+        if (request.projectManagerUsername() != null || isClearRequested(request, "projectManagerUsername")) {
+            p.setProjectManagerUsername(request.projectManagerUsername() == null ? null
+                    : request.projectManagerUsername().trim().toLowerCase(Locale.ROOT));
+        }
+        if (request.extraPlanJustification() != null || isClearRequested(request, "extraPlanJustification")) {
+            p.setExtraPlanJustification(trim(request.extraPlanJustification()));
+        }
+        if (p.getOrigin() == ProjectOrigin.EXTRA_PLAN && !hasText(p.getExtraPlanJustification())) {
+            throw new BadRequestException("extraPlanJustification é obrigatória para projeto EXTRA_PLAN");
+        }
+        if (p.getOrigin() != ProjectOrigin.DEMAND && !hasText(p.getDirectionName())) {
+            throw new BadRequestException("directionName é obrigatória para projeto não originado de demanda");
+        }
         p.setUpdatedBy(actor(actor));
-        // Update execution data if provided
         ProjectExecution exec = p.getExecution();
         if (exec != null) {
             if (request.progress() != null) exec.setProgress(request.progress());
-            if (request.consumedBudget() != null) exec.setConsumedBudget(request.consumedBudget());
+            if (request.consumedBudget() != null) {
+                if (costs != null && costs.existsByProjectId(id)) {
+                    throw new BadRequestException("O orçamento consumido é calculado a partir dos custos do projeto.");
+                }
+                exec.setConsumedBudget(request.consumedBudget());
+            }
             if (request.plannedStartDate() != null) exec.setPlannedStartDate(request.plannedStartDate());
             if (request.actualStartDate() != null) exec.setActualStartDate(request.actualStartDate());
             if (request.plannedEndDate() != null) exec.setPlannedEndDate(request.plannedEndDate());
@@ -190,6 +245,7 @@ public class ProjectService {
             exec.setLastUpdatedBy(actor(actor));
             exec.setLastUpdatedAt(java.time.Instant.now());
         }
+        if (exec != null) validateDates(exec.getPlannedStartDate(), exec.getPlannedEndDate());
         Project saved = projects.save(p);
         if (!Objects.equals(trim(previousManager), trim(saved.getProjectManager()))) {
             events.log(saved, ProjectEventType.MANAGER_CHANGED, "Gestor do projeto: "
@@ -201,6 +257,7 @@ public class ProjectService {
                     + ProjectEventService.money(previousBudget) + " → "
                     + ProjectEventService.money(saved.getBudget()), actor);
         }
+        events.log(saved, ProjectEventType.PROJECT_UPDATED, "Dados do projeto atualizados", actor);
         return ProjectResponse.detailed(saved);
     }
 
@@ -248,6 +305,7 @@ public class ProjectService {
         p.setUpdatedBy(actor(actor));
         p.attachExecution(newExecution(plannedStart, actualStart, plannedEnd, actualEnd, delayReasons, actor));
         phases.createPhases(p, ProjectPhasePlanner.seedsFromDemand(demand), actor(actor));
+        phases.linkProfilesByName(p);
         setBaseline(p);
         Project saved = projects.save(p);
         events.log(saved, ProjectEventType.CREATED, "Projeto criado a partir da demanda " + demand.getCode(), actor);
@@ -333,6 +391,7 @@ public class ProjectService {
         project.setUpdatedBy(updatedBy);
         phases.startFirstPhase(project, updatedBy);
         Project saved = projects.save(project);
+        if (baselines != null) baselines.captureIfAbsent(saved, "Início do projeto", actor);
         events.log(saved, ProjectEventType.STARTED, "Projeto iniciado"
                 + (saved.getCurrentPhaseName() == null ? "" : " na fase " + saved.getCurrentPhaseName()), actor);
         return ProjectResponse.detailed(saved);
@@ -440,6 +499,10 @@ public class ProjectService {
 
     private String nextCode() {
         return "PRJ-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
+    }
+
+    private static boolean isClearRequested(ProjectUpdateRequest request, String field) {
+        return request != null && request.clear() != null && request.clear().contains(field);
     }
 
     private static String actor(String actor) { return hasText(actor) ? actor.trim() : "system"; }

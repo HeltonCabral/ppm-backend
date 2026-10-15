@@ -5,5 +5,6 @@ import java.util.List;
 import java.util.UUID;
 
 public interface ProgramRepository extends JpaRepository<Program, UUID> {
+    long countByStrategicPillar_Id(UUID strategicPillarId);
 	List<Program> findByStrategicObjectives_StrategicPlan_Id(UUID id);
 }

@@ -6,4 +6,5 @@ import java.util.UUID;
 
 public interface StrategicElementRepository extends JpaRepository<StrategicElement, UUID> {
 	List<StrategicElement> findByStrategicPillar_Id(UUID id);
+	long countByStrategicPillar_Id(UUID id);
 }

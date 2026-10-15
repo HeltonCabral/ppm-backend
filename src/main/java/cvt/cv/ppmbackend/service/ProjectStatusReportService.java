@@ -12,6 +12,7 @@ import cvt.cv.ppmbackend.exception.BadRequestException;
 import cvt.cv.ppmbackend.exception.DomainException;
 import cvt.cv.ppmbackend.repository.ProjectRepository;
 import cvt.cv.ppmbackend.repository.ProjectStatusReportRepository;
+import cvt.cv.ppmbackend.repository.ProjectCostRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,6 +40,8 @@ public class ProjectStatusReportService {
     private final ProjectGuard guard;
     private final ProjectPhaseService phases;
     private final ProjectEventService events;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ProjectCostRepository costs;
 
     public ProjectStatusReportService(ProjectStatusReportRepository reports, ProjectRepository projects,
             ProjectGuard guard, ProjectPhaseService phases, ProjectEventService events) {
@@ -76,7 +79,7 @@ public class ProjectStatusReportService {
         }
         Integer phaseProgress = phases.phaseProgress(projectId);
         execution.setProgress(report.getProgress());
-        if (report.getConsumedBudget() != null) {
+        if (report.getConsumedBudget() != null && (costs == null || !costs.existsByProjectId(projectId))) {
             execution.setConsumedBudget(report.getConsumedBudget());
         }
         execution.setScheduleStatus(report.getScheduleStatus());

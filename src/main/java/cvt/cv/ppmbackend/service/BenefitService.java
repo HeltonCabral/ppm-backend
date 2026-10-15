@@ -37,13 +37,18 @@ public class BenefitService {
     @Transactional(readOnly = true)
     public List<BenefitResponse> findAll() {
         return benefits.findAll().stream()
+                .filter(b -> guard.canView(b.getProject()))
                 .sorted(Comparator.comparing(Benefit::getTrackingDate, Comparator.nullsLast(Comparator.reverseOrder())))
                 .map(BenefitService::toResponse).toList();
     }
 
     @Transactional(readOnly = true)
     public BenefitResponse get(UUID id) {
-        return toResponse(require(id));
+        Benefit benefit = require(id);
+        if (!guard.canView(benefit.getProject())) {
+            throw new ResourceNotFoundException("Benefício não encontrado: " + id);
+        }
+        return toResponse(benefit);
     }
 
     @Transactional(readOnly = true)

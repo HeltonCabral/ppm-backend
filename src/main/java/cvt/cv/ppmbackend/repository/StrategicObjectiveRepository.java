@@ -8,4 +8,5 @@ public interface StrategicObjectiveRepository extends JpaRepository<StrategicObj
 	List<StrategicObjective> findByStrategicPlan_Id(UUID id);
 
 	List<StrategicObjective> findByStrategicElement_Id(UUID id);
+	long countByStrategicElement_Id(UUID id);
 }

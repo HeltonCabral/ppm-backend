@@ -88,7 +88,7 @@ class ProjectProfileManagementJpaTest {
     @Test
     void addingAProfileMarksItAsAddedInTheProject() {
         ProjectProfileResponse created = service.create(project.getId(),
-                new ProjectProfileRequest(developer.getId(), 2, List.of("Desenvolvimento")), "cvt00983");
+                new ProjectProfileRequest(developer.getId(), 2, List.of("Desenvolvimento"), null), "cvt00983");
         reload();
 
         assertThat(created.origin()).isEqualTo(ProjectProfileOrigin.PROJECT);
@@ -109,7 +109,7 @@ class ProjectProfileManagementJpaTest {
     @Test
     void repeatedProfileIsAConflict() {
         assertThatThrownBy(() -> service.create(project.getId(),
-                new ProjectProfileRequest(analyst.getId(), 1, List.of()), "cvt00983"))
+                new ProjectProfileRequest(analyst.getId(), 1, List.of(), null), "cvt00983"))
                 .isInstanceOfSatisfying(DomainException.class, e -> {
                     assertThat(e.getStatus().value()).isEqualTo(409);
                     assertThat(e.getMessage())
@@ -120,10 +120,10 @@ class ProjectProfileManagementJpaTest {
     @Test
     void unknownOrInactiveProfileIsRejected() {
         assertThatThrownBy(() -> service.create(project.getId(),
-                new ProjectProfileRequest(UUID.randomUUID(), 1, List.of()), "x"))
+                new ProjectProfileRequest(UUID.randomUUID(), 1, List.of(), null), "x"))
                 .isInstanceOf(BadRequestException.class);
         assertThatThrownBy(() -> service.create(project.getId(),
-                new ProjectProfileRequest(retired.getId(), 1, List.of()), "x"))
+                new ProjectProfileRequest(retired.getId(), 1, List.of(), null), "x"))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("inativo");
     }
@@ -134,14 +134,14 @@ class ProjectProfileManagementJpaTest {
         member("Maria", inheritedAnalyst);
 
         ProjectProfileResponse updated = service.update(project.getId(), inheritedAnalyst.getId(),
-                new ProjectProfileRequest(null, 3, List.of("Análise")), "cvt00983");
+                new ProjectProfileRequest(null, 3, List.of("Análise"), null), "cvt00983");
 
         assertThat(updated.requiredQuantity()).isEqualTo(3);
         assertThat(updated.assignedCount()).isEqualTo(1);
         assertThat(updated.missing()).isEqualTo(2);
         assertThat(updated.origin()).isEqualTo(ProjectProfileOrigin.DEMAND);
         assertThatThrownBy(() -> service.update(project.getId(), inheritedAnalyst.getId(),
-                new ProjectProfileRequest(null, 0, List.of()), "cvt00983"))
+                new ProjectProfileRequest(null, 0, List.of(), null), "cvt00983"))
                 .isInstanceOf(BadRequestException.class);
     }
 
@@ -151,7 +151,7 @@ class ProjectProfileManagementJpaTest {
         member("João", inheritedAnalyst);
 
         ProjectProfileResponse updated = service.update(project.getId(), inheritedAnalyst.getId(),
-                new ProjectProfileRequest(null, 1, List.of()), "x");
+                new ProjectProfileRequest(null, 1, List.of(), null), "x");
 
         assertThat(updated.assignedCount()).isEqualTo(2);
         assertThat(updated.missing()).isZero();
@@ -161,11 +161,11 @@ class ProjectProfileManagementJpaTest {
     @Test
     void phasesKeepTheGivenOrderAndAreValidatedAgainstTheType() {
         ProjectProfileResponse updated = service.update(project.getId(), inheritedAnalyst.getId(),
-                new ProjectProfileRequest(null, 1, List.of("testes", "Análise", "Testes")), "x");
+                new ProjectProfileRequest(null, 1, List.of("testes", "Análise", "Testes"), null), "x");
 
         assertThat(updated.phases()).containsExactly("Testes", "Análise");
         assertThatThrownBy(() -> service.update(project.getId(), inheritedAnalyst.getId(),
-                new ProjectProfileRequest(null, 1, List.of("Produção")), "x"))
+                new ProjectProfileRequest(null, 1, List.of("Produção"), null), "x"))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("A fase \"Produção\" não existe no Tipo Projeto TI.");
     }
@@ -173,7 +173,7 @@ class ProjectProfileManagementJpaTest {
     @Test
     void capacityProfileCannotBeSwappedOnAnExistingRecord() {
         assertThatThrownBy(() -> service.update(project.getId(), inheritedAnalyst.getId(),
-                new ProjectProfileRequest(developer.getId(), 1, List.of()), "x"))
+                new ProjectProfileRequest(developer.getId(), 1, List.of(), null), "x"))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("não se muda");
     }
@@ -203,7 +203,7 @@ class ProjectProfileManagementJpaTest {
         em.persist(other);
 
         assertThatThrownBy(() -> service.update(other.getId(), inheritedAnalyst.getId(),
-                new ProjectProfileRequest(null, 2, List.of()), "x"))
+                new ProjectProfileRequest(null, 2, List.of(), null), "x"))
                 .isInstanceOf(ResourceNotFoundException.class);
         assertThatThrownBy(() -> service.delete(other.getId(), inheritedAnalyst.getId(), "x"))
                 .isInstanceOf(ResourceNotFoundException.class);
@@ -216,9 +216,9 @@ class ProjectProfileManagementJpaTest {
         em.flush();
 
         assertConflict(() -> service.create(project.getId(),
-                new ProjectProfileRequest(developer.getId(), 1, List.of()), "x"));
+                new ProjectProfileRequest(developer.getId(), 1, List.of(), null), "x"));
         assertConflict(() -> service.update(project.getId(), inheritedAnalyst.getId(),
-                new ProjectProfileRequest(null, 2, List.of()), "x"));
+                new ProjectProfileRequest(null, 2, List.of(), null), "x"));
         assertConflict(() -> service.delete(project.getId(), inheritedAnalyst.getId(), "cvt00983"));
     }
 

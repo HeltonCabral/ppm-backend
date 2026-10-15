@@ -6,6 +6,7 @@ import cvt.cv.ppmbackend.entity.Project;
 import cvt.cv.ppmbackend.entity.ProjectExecution;
 import cvt.cv.ppmbackend.exception.BadRequestException;
 import cvt.cv.ppmbackend.repository.ProjectExecutionRepository;
+import cvt.cv.ppmbackend.repository.ProjectCostRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,6 +20,12 @@ import java.util.UUID;
 public class ProjectExecutionService {
     private final ProjectExecutionRepository executions;
     private final ProjectService projects;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ProjectCostRepository costs;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ProjectGuard guard;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ProjectEventService events;
 
     public ProjectExecutionService(ProjectExecutionRepository executions, ProjectService projects) {
         this.executions = executions;
@@ -30,12 +37,15 @@ public class ProjectExecutionService {
     }
 
     public ProjectExecutionResponse update(UUID projectId, ProjectExecutionUpdateRequest request, String actor) {
+        if (guard != null) guard.requireWritable(projectId);
         validateDates(request.plannedStartDate(), request.plannedEndDate(), "planeadas");
         validateDates(request.actualStartDate(), request.actualEndDate(), "reais");
         if (request.progress() < 0 || request.progress() > 100)
             throw new BadRequestException("progress deve estar entre 0 e 100");
         if (request.consumedBudget().compareTo(BigDecimal.ZERO) < 0)
             throw new BadRequestException("consumedBudget não pode ser negativo");
+        if (costs != null && costs.existsByProjectId(projectId))
+            throw new BadRequestException("O orçamento consumido é calculado a partir dos custos do projeto.");
 
         ProjectExecution e = ensureExecution(projectId);
         e.setProgress(request.progress());
@@ -53,7 +63,10 @@ public class ProjectExecutionService {
         e.setExecutionNotes(request.executionNotes());
         e.setLastUpdatedAt(Instant.now());
         e.setLastUpdatedBy(actor == null || actor.isBlank() ? "system" : actor.trim());
-        return ProjectExecutionResponse.from(executions.save(e));
+        ProjectExecution saved = executions.save(e);
+        if (events != null) events.log(saved.getProject(), cvt.cv.ppmbackend.enums.ProjectEventType.PROJECT_UPDATED,
+                "Dados de execução atualizados", actor);
+        return ProjectExecutionResponse.from(saved);
     }
 
     private ProjectExecution ensureExecution(UUID projectId) {

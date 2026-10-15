@@ -12,4 +12,6 @@ public interface ProjectMilestoneRepository extends JpaRepository<ProjectMilesto
     List<ProjectMilestone> findByProjectIdOrderByDueDateAscCreatedAtAsc(UUID projectId);
 
     Optional<ProjectMilestone> findByIdAndProjectId(UUID id, UUID projectId);
+
+    List<ProjectMilestone> findByPhaseId(UUID phaseId);
 }

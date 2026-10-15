@@ -8,7 +8,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.UUID;
 
-public record ProjectUpdateRequest(@NotBlank @Size(max = 180) String name, @Size(max = 10000) String description,
+public record ProjectUpdateRequest(@Size(max = 180) String name, @Size(max = 10000) String description,
                 UUID programId, UUID strategicPlanId, UUID operationalPlanId, UUID strategicPillarId,
                 UUID strategicObjectiveId, @Size(max = 100) String directionCode,
                 @Size(max = 200) String directionName, @Size(max = 100) String areaCode,
@@ -17,6 +17,7 @@ public record ProjectUpdateRequest(@NotBlank @Size(max = 180) String name, @Size
                 @PositiveOrZero BigDecimal budget, UUID projectPhaseId,
                 @Size(max = 120) String projectManager,
                 @Size(max = 10000) String extraPlanJustification,
+                java.util.List<String> clear,
                 // Execution fields
                 @Min(0) @Max(100) Integer progress,
                 @PositiveOrZero BigDecimal consumedBudget,

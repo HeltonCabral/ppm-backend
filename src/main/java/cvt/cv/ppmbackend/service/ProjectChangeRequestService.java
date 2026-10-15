@@ -41,6 +41,8 @@ public class ProjectChangeRequestService {
     private final ProjectGuard guard;
     private final ProjectPhaseService phases;
     private final ProjectEventService events;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ProjectBaselineService baselines;
 
     public ProjectChangeRequestService(ProjectChangeRequestRepository requests, ProjectRepository projects,
             ProjectGuard guard, ProjectPhaseService phases, ProjectEventService events) {
@@ -156,6 +158,9 @@ public class ProjectChangeRequestService {
         decide(request, ChangeRequestStatus.APPROVED, decision, actor);
         project.setUpdatedBy(actor(actor));
         projects.save(project);
+        if (request.getKind() == ChangeRequestKind.SCHEDULE && baselines != null) {
+            baselines.captureVersion(project, request.getTitle(), actor);
+        }
         events.log(project, ProjectEventType.CHANGE_APPROVED, "Pedido de alteração de " + kindLabel(request.getKind())
                 + " aprovado: " + change(request), actor);
         return toResponse(request);

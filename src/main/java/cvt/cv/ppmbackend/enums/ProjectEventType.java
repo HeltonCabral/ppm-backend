@@ -3,10 +3,17 @@ package cvt.cv.ppmbackend.enums;
 /** Tipo de um evento do histórico do projeto. */
 public enum ProjectEventType {
     CREATED,
+    PROJECT_UPDATED,
     STATUS_CHANGED,
     STARTED,
     COMPLETED,
     PHASE_UPDATED,
+    GATE_UPDATED,
+    GATE_REQUESTED,
+    GATE_APPROVED,
+    GATE_REJECTED,
+    PLAN_CHANGED,
+    PROFILE_PHASES_CLEARED,
     PROGRESS_OVERRIDDEN,
     MILESTONE_ADDED,
     MILESTONE_UPDATED,
@@ -26,5 +33,8 @@ public enum ProjectEventType {
     PROFILE_CHANGED,
     MANAGER_CHANGED,
     BUDGET_CHANGED,
+    BASELINE_CREATED,
+    COST_CHANGED,
+    DEPENDENCY_CHANGED,
     BENEFIT_CHANGED
 }

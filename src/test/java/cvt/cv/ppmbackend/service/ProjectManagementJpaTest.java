@@ -3,6 +3,9 @@ package cvt.cv.ppmbackend.service;
 import cvt.cv.ppmbackend.config.AccessControlProperties;
 import cvt.cv.ppmbackend.dto.ProjectManagementDtos.*;
 import cvt.cv.ppmbackend.dto.ProjectResponse;
+import cvt.cv.ppmbackend.entity.LookupValue;
+import cvt.cv.ppmbackend.entity.PhaseDefinition;
+import cvt.cv.ppmbackend.entity.PhaseModel;
 import cvt.cv.ppmbackend.entity.Demand;
 import cvt.cv.ppmbackend.entity.DemandCustomPhase;
 import cvt.cv.ppmbackend.entity.DemandPlanningCycle;
@@ -25,6 +28,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -77,7 +81,7 @@ class ProjectManagementJpaTest {
     void setUp() {
         ProjectEventService events = new ProjectEventService(eventRepository);
         ProjectGuard guard = new ProjectGuard(projects, properties, userAccess);
-        phases = new ProjectPhaseService(phaseRepository, projects, guard, events);
+        phases = new ProjectPhaseService(phaseRepository, projects, guard, events, milestoneRepository);
         reports = new ProjectStatusReportService(reportRepository, projects, guard, phases, events);
         risks = new ProjectRiskService(riskRepository, projects, guard, events);
         changeRequests = new ProjectChangeRequestService(changeRequestRepository, projects, guard, phases, events);
@@ -345,8 +349,173 @@ class ProjectManagementJpaTest {
                 null, LocalDate.now(), null), "x")).isInstanceOf(BadRequestException.class);
     }
 
+    // Avanço só em execução: fases e marcos.
+    @Test
+    void phasesAndMilestonesOnlyAdvanceWithTheProjectRunning() {
+        UUID design = phase("Desenho").getId();
+        assertConflict(() -> phases.update(project.getId(), design,
+                new PhaseUpdateRequest(ProjectPhaseStatus.IN_PROGRESS, null, null, null, null, null), "x"));
+        assertConflict(() -> phases.update(project.getId(), design,
+                new PhaseUpdateRequest(ProjectPhaseStatus.NOT_STARTED, 30, null, null, null, null), "x"));
+        assertConflict(() -> milestones.create(project.getId(), new MilestoneRequest("Kick-off", null, null,
+                LocalDate.now(), MilestoneStatus.DONE, null, false, null), "x"));
+
+        // Planear continua permitido: datas previstas e SKIPPED.
+        PhaseResponse planned = phases.update(project.getId(), design, new PhaseUpdateRequest(
+                ProjectPhaseStatus.SKIPPED, null, LocalDate.of(2027, 1, 2), LocalDate.of(2027, 1, 25), null, null), "x");
+        assertThat(planned.status()).isEqualTo(ProjectPhaseStatus.SKIPPED);
+        assertThat(planned.plannedEndDate()).isEqualTo(LocalDate.of(2027, 1, 25));
+        assertThat(milestones.create(project.getId(), milestone("Go-live"), "x").status())
+                .isEqualTo(MilestoneStatus.PENDING);
+
+        reload();
+        Project suspended = projects.findById(project.getId()).orElseThrow();
+        suspended.setStatus(ProjectStatus.ON_HOLD);
+        reload();
+        assertThatThrownBy(() -> phases.update(project.getId(), phase("Piloto").getId(),
+                new PhaseUpdateRequest(ProjectPhaseStatus.DONE, null, null, null, null, null), "x"))
+                .hasMessage("O projeto está suspenso.");
+    }
+
+    @Test
+    void migrationResetsPhasesOfProjectsThatWereNeverStarted() {
+        ProjectPhase design = phase("Desenho");
+        design.setStatus(ProjectPhaseStatus.DONE);
+        design.setProgress(100);
+        design.setActualEndDate(LocalDate.now());
+        reload();
+
+        assertThat(phases.resetPhasesOfProjectsNotStarted()).isEqualTo(1);
+        reload();
+        assertThat(phases.list(project.getId())).allMatch(p -> p.status() == ProjectPhaseStatus.NOT_STARTED
+                && p.progress() == 0 && p.actualEndDate() == null);
+        assertThat(phases.resetPhasesOfProjectsNotStarted()).isZero();
+    }
+
+    // 14. Acrescentar uma fase e repartir os pesos → nova fase por iniciar, ordem, datas e PLAN_CHANGED.
+    @Test
+    void customisingThePlanAddsRenamesAndRedistributes() {
+        projectService.start(project.getId(), "x");
+        phases.update(project.getId(), phase("Desenho").getId(), new PhaseUpdateRequest(ProjectPhaseStatus.DONE, null,
+                null, null, LocalDate.of(2027, 1, 1), LocalDate.of(2027, 1, 20)), "x");
+        reload();
+        PhasePlanRequest plan = new PhasePlanRequest(List.of(
+                new PhasePlanItem(phase("Desenho").getId(), "Desenho", new BigDecimal("20")),
+                new PhasePlanItem(null, "Testes do fornecedor", new BigDecimal("30")),
+                new PhasePlanItem(phase("Desenvolvimento").getId(), "Construção", new BigDecimal("20")),
+                new PhasePlanItem(phase("Piloto").getId(), "Piloto", new BigDecimal("30"))),
+                true, "O fornecedor testa numa fase própria.");
+
+        List<PhaseResponse> result = phases.replacePlan(project.getId(), plan, "cvt00983");
+        reload();
+
+        assertThat(result).extracting(PhaseResponse::name, PhaseResponse::sequence, PhaseResponse::status)
+                .containsExactly(
+                        tuple("Desenho", 1, ProjectPhaseStatus.DONE),
+                        tuple("Testes do fornecedor", 2, ProjectPhaseStatus.NOT_STARTED),
+                        tuple("Construção", 3, ProjectPhaseStatus.NOT_STARTED),
+                        tuple("Piloto", 4, ProjectPhaseStatus.NOT_STARTED));
+        // Desenho (DONE) mantém as datas; as restantes repartem 21/01 → 10/04 (80 dias) por 30/20/30.
+        assertThat(result.get(0).plannedEndDate()).isEqualTo(LocalDate.of(2027, 1, 20));
+        assertThat(result.get(1).plannedStartDate()).isEqualTo(LocalDate.of(2027, 1, 21));
+        assertThat(result.get(3).plannedEndDate()).isEqualTo(LocalDate.of(2027, 4, 10));
+        assertThat(result.get(2).plannedStartDate()).isEqualTo(result.get(1).plannedEndDate().plusDays(1));
+        assertThat(eventRepository.findByProjectIdOrderByAtDesc(project.getId()).get(0).getDescription())
+                .contains("acrescentada Testes do fornecedor", "renomeada Desenvolvimento → Construção",
+                        "Motivo: O fornecedor testa numa fase própria.");
+        assertThat(eventTypes(project)).contains(ProjectEventType.PLAN_CHANGED);
+    }
+
+    // 15. Remover uma fase com avanço → 409; remover uma por iniciar com marcos → marcos sem fase.
+    @Test
+    void removingPhasesKeepsAdvancedOnesAndDetachesMilestones() {
+        projectService.start(project.getId(), "x");
+        UUID pilot = phase("Piloto").getId();
+        MilestoneResponse goLive = milestones.create(project.getId(), new MilestoneRequest("Go-live", null, pilot,
+                LocalDate.of(2027, 4, 10), MilestoneStatus.PENDING, null, true, null), "x");
+        reload();
+
+        assertConflict(() -> phases.replacePlan(project.getId(), new PhasePlanRequest(List.of(
+                new PhasePlanItem(phase("Desenvolvimento").getId(), "Desenvolvimento", new BigDecimal("50")),
+                new PhasePlanItem(pilot, "Piloto", new BigDecimal("50"))), false, null), "x"));
+
+        phases.replacePlan(project.getId(), new PhasePlanRequest(List.of(
+                new PhasePlanItem(phase("Desenho").getId(), "Desenho", new BigDecimal("40")),
+                new PhasePlanItem(phase("Desenvolvimento").getId(), "Desenvolvimento", new BigDecimal("60"))),
+                false, null), "x");
+        reload();
+
+        assertThat(phases.list(project.getId())).extracting(PhaseResponse::name)
+                .containsExactly("Desenho", "Desenvolvimento");
+        assertThat(milestones.list(project.getId())).filteredOn(m -> m.id().equals(goLive.id()))
+                .singleElement().extracting(MilestoneResponse::phaseId).isNull();
+    }
+
+    // 16. Pesos a somar 90 → 400; nomes repetidos → 400; projeto COMPLETED → 409.
+    @Test
+    void planValidations() {
+        assertThatThrownBy(() -> phases.replacePlan(project.getId(), new PhasePlanRequest(List.of(
+                new PhasePlanItem(null, "A", new BigDecimal("40")),
+                new PhasePlanItem(null, "B", new BigDecimal("50"))), true, null), "x"))
+                .isInstanceOf(BadRequestException.class).hasMessage("Os pesos somam 90%: têm de somar 100%.");
+        assertThatThrownBy(() -> phases.replacePlan(project.getId(), new PhasePlanRequest(List.of(
+                new PhasePlanItem(null, "Testes", new BigDecimal("50")),
+                new PhasePlanItem(null, " testes ", new BigDecimal("50"))), true, null), "x"))
+                .isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> phases.replacePlan(project.getId(), new PhasePlanRequest(List.of(), true, null), "x"))
+                .hasMessage("O plano precisa de pelo menos uma fase.");
+
+        projectService.start(project.getId(), "x");
+        projectService.complete(project.getId(), null, "x");
+        reload();
+        assertConflict(() -> phases.replacePlan(project.getId(), new PhasePlanRequest(List.of(
+                new PhasePlanItem(null, "Única", new BigDecimal("100"))), true, null), "x"));
+    }
+
+    // 17. Extra-plano com phases → essas fases; só com phaseModelId → as fases ativas do Tipo.
+    @Test
+    void extraPlanProjectsAreBornWithTheChosenPhases() {
+        LookupValue domain = new LookupValue();
+        domain.setCategory("DOMAIN");
+        domain.setCode("TI");
+        domain.setLabel("TI");
+        em.persist(domain);
+        PhaseModel type = new PhaseModel();
+        type.setCode("TIPO");
+        type.setName("Tipo");
+        em.persist(type);
+        PhaseDefinition only = new PhaseDefinition();
+        only.setPhaseModel(type);
+        only.setCode("UNICA");
+        only.setName("Única do Tipo");
+        only.setSequence(1);
+        only.setDurationWeightPercentage(new BigDecimal("100"));
+        em.persist(only);
+        type.getPhases().add(only);
+        em.flush();
+
+        ProjectResponse chosen = projectService.createExtraPlan(extraPlan(type.getId(), List.of(
+                new PhasePlanItem(null, "Levantamento", new BigDecimal("25")),
+                new PhasePlanItem(null, "Implementação", new BigDecimal("75")))), "x");
+        ProjectResponse fromType = projectService.createExtraPlan(extraPlan(type.getId(), null), "x");
+        reload();
+
+        assertThat(phases.list(chosen.id())).extracting(PhaseResponse::name, PhaseResponse::plannedEndDate)
+                .containsExactly(tuple("Levantamento", LocalDate.of(2027, 1, 25)),
+                        tuple("Implementação", LocalDate.of(2027, 4, 10)));
+        assertThat(phases.list(fromType.id())).extracting(PhaseResponse::name).containsExactly("Única do Tipo");
+    }
+
+    private static cvt.cv.ppmbackend.dto.ProjectCreateExtraPlanRequest extraPlan(UUID typeId,
+            List<PhasePlanItem> plan) {
+        return new cvt.cv.ppmbackend.dto.ProjectCreateExtraPlanRequest("Extra", null, "DSI", "DSI", null, null, "TI",
+                null, null, null, new BigDecimal("100"), LocalDate.of(2027, 1, 1), LocalDate.of(2027, 4, 10),
+                "Urgente", "Gestor", "gestor", typeId, plan);
+    }
+
     @Test
     void milestonesAreCompletedTodayAndFlagLateOnes() {
+        projectService.start(project.getId(), "x");
         MilestoneResponse late = milestones.create(project.getId(), new MilestoneRequest("Kick-off", null,
                 phase("Desenho").getId(), LocalDate.now().minusDays(1), MilestoneStatus.PENDING, null, false,
                 "PMO"), "x");

@@ -54,6 +54,7 @@ class DemandProjectInheritanceJpaTest {
     @Autowired private ProfileRepository profileRepository;
     @Autowired private ProjectEventRepository eventRepository;
     @Autowired private ProjectPhaseRepository phaseRepository;
+    @Autowired private ProjectMilestoneRepository milestoneRepository;
     @Autowired private ProjectClosureRepository closureRepository;
     @Autowired private ProjectLessonLearnedRepository lessonRepository;
     @Autowired private PhaseModelRepository phaseModels;
@@ -69,7 +70,7 @@ class DemandProjectInheritanceJpaTest {
                 new DemandProjectInheritanceService(demandAreas, participatingDirections,
                         participatingDirectionAreas, successCriteria, new DemandRequirementsResolver(
                         new DemandResourceDerivationService(participatingDirections), profileRequirements)),
-                new ProjectPhaseService(phaseRepository, projects, guard, events), events,
+                new ProjectPhaseService(phaseRepository, projects, guard, events, milestoneRepository), events,
                 new ProjectClosureService(closureRepository, lessonRepository, guard), guard, phaseModels);
 
         Project project = new Project();

@@ -35,6 +35,14 @@ public final class ProjectManagementDtos {
             ProjectPhaseStatus status, Integer progress, String updatedBy, Instant updatedAt) {
     }
 
+    /** Uma fase do plano personalizado: {@code id} nulo = fase nova. */
+    public record PhasePlanItem(UUID id, String name, BigDecimal weight) {
+    }
+
+    /** O plano inteiro e por ordem; {@code redistributeDates} reparte as datas das fases em aberto. */
+    public record PhasePlanRequest(List<PhasePlanItem> phases, Boolean redistributeDates, String reason) {
+    }
+
     public record PhaseUpdateRequest(ProjectPhaseStatus status, Integer progress, LocalDate plannedStartDate,
             LocalDate plannedEndDate, LocalDate actualStartDate, LocalDate actualEndDate) {
     }

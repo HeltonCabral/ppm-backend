@@ -49,7 +49,7 @@ public class ProjectMilestoneService {
         ProjectMilestone milestone = new ProjectMilestone();
         milestone.setProject(project);
         milestone.setCreatedBy(actor(actor));
-        apply(milestone, projectId, request, actor);
+        apply(milestone, project, request, actor);
         milestones.save(milestone);
         events.log(project, ProjectEventType.MILESTONE_ADDED, "Marco " + milestone.getName() + " acrescentado"
                 + (milestone.getDueDate() == null ? "" : " (prazo " + date(milestone.getDueDate()) + ")"), actor);
@@ -63,7 +63,7 @@ public class ProjectMilestoneService {
         Project project = guard.requireWritable(projectId);
         ProjectMilestone milestone = require(projectId, milestoneId);
         MilestoneStatus previous = milestone.getStatus();
-        apply(milestone, projectId, request, actor);
+        apply(milestone, project, request, actor);
         milestones.save(milestone);
         boolean nowDone = milestone.getStatus() == MilestoneStatus.DONE && previous != MilestoneStatus.DONE;
         events.log(project, nowDone ? ProjectEventType.MILESTONE_DONE : ProjectEventType.MILESTONE_UPDATED,
@@ -78,7 +78,8 @@ public class ProjectMilestoneService {
         events.log(project, ProjectEventType.MILESTONE_REMOVED, "Marco " + milestone.getName() + " removido", actor);
     }
 
-    private void apply(ProjectMilestone milestone, UUID projectId, MilestoneRequest request, String actor) {
+    private void apply(ProjectMilestone milestone, Project project, MilestoneRequest request, String actor) {
+        UUID projectId = project.getId();
         if (request == null) {
             throw new BadRequestException("Dados do marco em falta.");
         }
@@ -99,6 +100,13 @@ public class ProjectMilestoneService {
                     .orElseThrow(() -> new BadRequestException("A fase indicada não pertence a este projeto."));
         }
         MilestoneStatus status = request.status() == null ? MilestoneStatus.PENDING : request.status();
+        // Planear (criar, datas, cancelar) é permitido antes do arranque; concluir só em execução.
+        if (status == MilestoneStatus.DONE && milestone.getStatus() != MilestoneStatus.DONE
+                && project.getStatus() != cvt.cv.ppmbackend.enums.ProjectStatus.IN_PROGRESS) {
+            throw new cvt.cv.ppmbackend.exception.DomainException(org.springframework.http.HttpStatus.CONFLICT,
+                    "PROJECT_NOT_RUNNING", "Os marcos só se concluem com o projeto em execução.",
+                    java.util.Map.of("status", project.getStatus().name()));
+        }
         milestone.setName(name);
         milestone.setDescription(trim(request.description()));
         milestone.setPhase(phase);
