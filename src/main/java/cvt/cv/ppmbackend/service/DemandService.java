@@ -240,6 +240,7 @@ public class DemandService {
                 source.getNature(),
                 source.getSponsor(),
                 source.getTypeId(),
+                null,
                 source.getOrigin(),
                 source.getEasyVistaRef(),
                 supplierIds,
@@ -647,7 +648,7 @@ public class DemandService {
         if (scoreMin != null && scoreMax != null && scoreMin.compareTo(scoreMax) > 0) {
             throw new BadRequestException("scoreMin não pode ser maior que scoreMax");
         }
-        String sortField = sort == null || sort.isBlank() ? "createdAt" : sort;
+        Sort order = listSort(sort);
         Specification<Demand> spec = (root, query, cb) -> cb.isNull(root.get("deletedAt"));
         if (access.filterEnabled()) {
             // A regra "Ver" já inclui as demandas criadas pelo utilizador.
@@ -726,7 +727,7 @@ public class DemandService {
             spec = spec.and((r, q, cb) -> r.get("id").in(matchingDemandIds));
         }
 
-        Page<Demand> p = demands.findAll(spec, PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, sortField)));
+        Page<Demand> p = demands.findAll(spec, PageRequest.of(page, size, order));
         return new PagedDemandsResponse(p.getContent().stream().map(this::map).toList(), page, size, p.getTotalElements(),
                 p.getTotalPages());
     }
@@ -856,7 +857,7 @@ public class DemandService {
         d.setDirectionParticipationType(req.directionParticipationType());
         d.setNature(req.nature() != null ? req.nature() : DemandNature.NORMAL);
         d.setSponsor(req.sponsor());
-        d.setType(req.typeId() == null ? null : requireActivePhaseModel(req.typeId()));
+        d.setType(resolveType(req.typeId(), req.typeCode()));
         d.setOrigin(normalizedOrigin);
         d.setEasyVistaRef(req.easyVistaRef());
         syncSuppliers(d, req.supplierIds());
@@ -999,6 +1000,50 @@ public class DemandService {
         if (model == null)
             return null;
         return new PhaseModelSummary(model.getId(), model.getCode(), model.getName(), model.isActive());
+    }
+
+    /**
+     * The demand type comes as an id or as the phase model's code (Ex.: PROJ_TI,
+     * from an Excel import). Both may come only if they name the same model.
+     */
+    private PhaseModel resolveType(UUID typeId, String typeCode) {
+        if (!hasText(typeCode)) {
+            return typeId == null ? null : requireActivePhaseModel(typeId);
+        }
+        String code = typeCode.trim();
+        PhaseModel model = phaseModels.findByCodeIgnoreCase(code)
+                .orElseThrow(() -> domain(HttpStatus.UNPROCESSABLE_ENTITY, "PHASE_MODEL_CODE_NOT_FOUND",
+                        "Não existe modelo de fases com o código " + code + ".",
+                        Map.of("typeCode", code)));
+        if (typeId != null && !typeId.equals(model.getId())) {
+            throw domain(HttpStatus.UNPROCESSABLE_ENTITY, "PHASE_MODEL_MISMATCH",
+                    "O typeId e o typeCode indicam modelos de fases diferentes.",
+                    Map.of("typeId", typeId.toString(), "typeCode", code));
+        }
+        return requireActivePhaseModel(model.getId());
+    }
+
+    /** Fields of the demand the list can be ordered by (the table's sortable columns). */
+    private static final Set<String> LIST_SORT_FIELDS = Set.of(
+            "createdAt", "code", "title", "directionCode", "requester", "estimatedBudget", "desiredDate", "urgency");
+
+    /**
+     * "campo" or "campo,asc|desc"; descending when no direction is given, as before. The id breaks ties,
+     * so a page boundary never repeats or skips demands with the same value.
+     */
+    static Sort listSort(String sort) {
+        String[] parts = sort == null ? new String[0] : sort.split(",");
+        String field = parts.length > 0 && !parts[0].isBlank() ? parts[0].trim() : "createdAt";
+        if (!LIST_SORT_FIELDS.contains(field)) {
+            throw new BadRequestException("Ordenação não suportada: " + field);
+        }
+        Sort.Direction direction = parts.length > 1 && parts[1].trim().equalsIgnoreCase("asc")
+                ? Sort.Direction.ASC : Sort.Direction.DESC;
+        return Sort.by(direction, field).and(Sort.by(Sort.Direction.ASC, "id"));
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private PhaseModel requireActivePhaseModel(UUID id) {
@@ -1262,7 +1307,8 @@ public class DemandService {
                 p.directionParticipationType() != null ? p.directionParticipationType() : d.getDirectionParticipationType(),
                 p.nature() != null ? p.nature() : d.getNature(),
                 p.sponsor() != null ? p.sponsor() : d.getSponsor(),
-                p.typeId() != null ? p.typeId() : d.getTypeId(),
+                p.typeId() != null || hasText(p.typeCode()) ? p.typeId() : d.getTypeId(),
+                p.typeCode(),
                 p.origin() != null ? p.origin() : d.getOrigin(),
                 p.easyVistaRef() != null ? p.easyVistaRef() : d.getEasyVistaRef(),
                 p.supplierIds(),
@@ -1291,7 +1337,7 @@ public class DemandService {
     }
 
     private Create toCreate(Update u) {
-        return new Create(u.title(), null, null, null, u.summary(), u.requester(), u.areaName(), u.areaCode(), u.directionName(), u.directionCode(), u.directionParticipationType(), u.nature(), u.sponsor(), u.typeId(),
+        return new Create(u.title(), null, null, null, u.summary(), u.requester(), u.areaName(), u.areaCode(), u.directionName(), u.directionCode(), u.directionParticipationType(), u.nature(), u.sponsor(), u.typeId(), u.typeCode(),
                 u.origin(), u.easyVistaRef(), u.supplierIds(), u.domainId(), u.budgetLineId(), u.impactedSystem(), u.currentEvidence(),
                 u.problemStatement(), u.desiredOutcome(), u.proposedResponse(), u.urgency(), u.estimatedBudget(),
                 u.desiredDate(), u.mandatoryDeadline(), u.notes(), u.risksIdentified(),

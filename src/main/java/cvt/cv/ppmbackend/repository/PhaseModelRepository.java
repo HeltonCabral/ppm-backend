@@ -21,5 +21,7 @@ public interface PhaseModelRepository extends JpaRepository<PhaseModel, UUID> {
 
     boolean existsByCodeIgnoreCase(String code);
 
+    Optional<PhaseModel> findByCodeIgnoreCase(String code);
+
     boolean existsByCodeIgnoreCaseAndIdNot(String code, UUID id);
 }

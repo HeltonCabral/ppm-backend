@@ -107,10 +107,10 @@ public class Demand extends BaseEntity {
     @Column(name = "current_evidence", columnDefinition = "TEXT")
     private String currentEvidence;
 
-    @Column(name = "problem_statement", columnDefinition = "TEXT", nullable = false)
+    @Column(name = "problem_statement", columnDefinition = "TEXT")
     private String problemStatement;
 
-    @Column(name = "desired_outcome", columnDefinition = "TEXT", nullable = false)
+    @Column(name = "desired_outcome", columnDefinition = "TEXT")
     private String desiredOutcome;
 
     @Column(name = "proposed_response", columnDefinition = "TEXT")

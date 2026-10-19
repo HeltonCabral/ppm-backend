@@ -257,7 +257,7 @@ class DemandAreasTest {
                 "Gestão e Desenvolvimento", "GDS",
                 "DSI", "DSI",
                 DirectionParticipationType.IMPLEMANTATION, null, "sponsor",
-                typeId, "MANUAL", null, null, null, null,
+                typeId, null, "MANUAL", null, null, null, null,
                 null, null,
                 "Problema", "Resultado esperado", null,
                 "HIGH", null, null, null, null, null, null, null,
