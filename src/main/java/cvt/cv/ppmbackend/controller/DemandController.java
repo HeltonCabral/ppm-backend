@@ -75,10 +75,11 @@ public class DemandController {
             @RequestParam(defaultValue = "createdAt") String sort,
             @RequestParam(required = false) String search,
             @RequestParam(required = false) List<DemandPlanningStatus> status,
-            @RequestParam(required = false) String type,
+            /* Type, nature, direction and domain take several values: ?type=A&type=B (or "A,B"). */
+            @RequestParam(required = false) List<String> type,
             @RequestParam(required = false) String origin,
             @RequestParam(required = false) String urgency,
-            @RequestParam(required = false) DemandNature nature,
+            @RequestParam(required = false) List<DemandNature> nature,
             @RequestParam(required = false) UUID committeeId,
             @RequestParam(required = false) BigDecimal scoreMin,
             @RequestParam(required = false) BigDecimal scoreMax,
@@ -89,14 +90,19 @@ public class DemandController {
             @RequestParam(required = false) UUID programId,
             @RequestParam(required = false) String requester,
             @RequestParam(required = false) String businessArea,
-            @RequestParam(required = false) String directionCode,
+            @RequestParam(required = false) List<String> directionCode,
+            /* The demand's responsible area (areaCode), several values. */
+            @RequestParam(required = false) List<String> areaCode,
+            @RequestParam(required = false) List<String> domainCode,
+            /* The code a demand had in the Excel import sheet, several values. */
+            @RequestParam(required = false) List<String> importCode,
             @RequestParam(required = false) LocalDate createdFrom,
             @RequestParam(required = false) LocalDate createdTo,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
         return demands.list(page, size, sort, search, status, type, origin, urgency, nature,
                 committeeId, scoreMin, scoreMax,
                 strategicPlanId, operationalPlanId, strategicPillarId, strategicObjectiveId, programId,
-                requester, businessArea, directionCode, createdFrom, createdTo, actor(user));
+                requester, businessArea, directionCode, areaCode, domainCode, importCode, createdFrom, createdTo, actor(user));
     }
 
     @GetMapping("/strategic-plans/{strategicPlanId}/committee-dashboard")

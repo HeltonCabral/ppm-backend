@@ -50,20 +50,26 @@ class DirectionAccessJpaTest {
         persistDemand("D-DSI", "DSI", "outro");
         persistDemand("D-DOM", "DOM", "outro");
         persistDemand("D-MINE", "DOM", "CVT00983");
-        Demand domWithDsi = persistDemand("D-DOM-DSI", "DOM", "outro");
-        DemandParticipatingDirection participating = new DemandParticipatingDirection();
-        participating.setDemand(domWithDsi);
-        participating.setDirectionCode("dsi");
-        participating.setParticipationType(DirectionParticipationType.IMPLEMANTATION);
-        em.persist(participating);
+        participate(persistDemand("D-DOM-DSI", "DOM", "outro"), DirectionParticipationType.IMPLEMANTATION);
+        participate(persistDemand("D-DOM-DSI-INT", "DOM", "outro"), DirectionParticipationType.INTERVENIENT);
         em.flush();
     }
 
-    // 2. Lista: vê as DSI (responsável ou participante) e as que criou; não vê as DOM.
+    // 2. Lista: vê as DSI (responsável, ou participante como Implementação ou Interveniente) e as que criou; não vê as DOM.
     @Test
     void listShowsOwnDirectionParticipatingAndCreatedDemands() {
         assertThat(visibleCodes(user("cvt00983", Set.of(UserAccess.VIEW_DIRECTION), "DSI")))
-                .containsExactlyInAnyOrder("D-DSI", "D-MINE", "D-DOM-DSI");
+                .containsExactlyInAnyOrder("D-DSI", "D-MINE", "D-DOM-DSI", "D-DOM-DSI-INT");
+    }
+
+    // Gestor da direção só com demanda_editar_direcao: vê o mesmo que quem tem demanda_ver_direcao.
+    @Test
+    void directionEditorSeesTheSameAsDirectionViewer() {
+        UserAccess manager = user("gestor", Set.of(UserAccess.EDIT_DIRECTION), "DSI");
+        assertThat(visibleCodes(manager)).containsExactlyInAnyOrder("D-DSI", "D-DOM-DSI", "D-DOM-DSI-INT");
+        Demand intervening = demandRepository.findAll().stream().filter((d) -> d.getCode().equals("D-DOM-DSI-INT")).findFirst().orElseThrow();
+        assertThat(access.canView(intervening, List.of("DSI"), manager)).isTrue();
+        assertThat(access.canView(intervening, List.of(), manager)).isFalse();
     }
 
     // 5. Sem direção: só as que criou.
@@ -77,7 +83,7 @@ class DirectionAccessJpaTest {
     // 7. demanda_ver_todas vê tudo.
     @Test
     void listWithViewAllShowsEverything() {
-        assertThat(visibleCodes(user("comite", Set.of(UserAccess.VIEW_ALL)))).hasSize(4);
+        assertThat(visibleCodes(user("comite", Set.of(UserAccess.VIEW_ALL)))).hasSize(5);
     }
 
     // 6. Atribuição com valid_until ontem deixa de contar.
@@ -147,6 +153,14 @@ class DirectionAccessJpaTest {
         demand.setDirectionCode(directionCode);
         demand.setCreatedBy(createdBy);
         return em.persist(demand);
+    }
+
+    private void participate(Demand demand, DirectionParticipationType type) {
+        DemandParticipatingDirection participating = new DemandParticipatingDirection();
+        participating.setDemand(demand);
+        participating.setDirectionCode("dsi");
+        participating.setParticipationType(type);
+        em.persist(participating);
     }
 
     private void persistAssignment(String userName, String directionCode, LocalDate validUntil) {

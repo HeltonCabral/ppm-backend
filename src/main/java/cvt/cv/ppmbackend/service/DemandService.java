@@ -241,6 +241,7 @@ public class DemandService {
                 source.getSponsor(),
                 source.getTypeId(),
                 null,
+                null,
                 source.getOrigin(),
                 source.getEasyVistaRef(),
                 supplierIds,
@@ -384,18 +385,20 @@ public class DemandService {
                         strategicObjectiveId, null, null, null, actor(actorId)));
     }
 
+    /** Logical delete, only while the demand is a draft in every planning cycle. */
     @Transactional
     public void delete(UUID id, String actorId) {
         Demand d = entity(id);
-        List<DemandPlanningCycle> openCycles = planningCycles.findAllByDemand_IdOrderByCycleEntryAtDesc(id).stream()
-                .filter(c -> c.getStatus() != BACKLOG)
-                .toList();
-        for (DemandPlanningCycle cycle : openCycles) {
-            planningCycleService.transitionStatus(cycle, BACKLOG, "Demanda arquivada por eliminação lógica", actorId);
+        List<DemandPlanningCycle> cycles = planningCycles.findAllByDemand_IdOrderByCycleEntryAtDesc(id);
+        if (cycles.stream().anyMatch(c -> c.getStatus() != DRAFT))
+            throw domain(HttpStatus.CONFLICT, "DEMAND_NOT_DRAFT", "Só é possível eliminar demandas em Draft",
+                    Map.of("id", id.toString()));
+        for (DemandPlanningCycle cycle : cycles) {
+            planningCycleService.transitionStatus(cycle, BACKLOG, "Demanda eliminada em Draft", actorId);
         }
         d.setDeletedAt(Instant.now());
         d.setUpdatedBy(actor(actorId));
-        historyService.log(d, "ARCHIVED", null, BACKLOG.name(), "Demanda arquivada por eliminação lógica",
+        historyService.log(d, "ARCHIVED", DRAFT.name(), BACKLOG.name(), "Demanda eliminada em Draft",
                 actor(actorId), actor(actorId), Map.of());
     }
 
@@ -608,8 +611,8 @@ public class DemandService {
                 cb.equal(root.get("strategicPlan").get("id"), strategicPlanId),
                 cb.isNotNull(root.get("portfolioRank")));
         if (directionCode != null && !directionCode.isBlank())
-            spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("demand").get("directionCode")),
-                    directionCode.trim().toUpperCase(Locale.ROOT)));
+            spec = spec.and((r, q, cb) -> DemandAccessService.involvesDirections(r.get("demand"), q, cb,
+                    List.of(directionCode.trim().toUpperCase(Locale.ROOT))));
         if (areaCode != null && !areaCode.isBlank())
             spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("demand").get("areaCode")),
                     areaCode.trim().toUpperCase(Locale.ROOT)));
@@ -640,11 +643,11 @@ public class DemandService {
 
     @Transactional
     public PagedDemandsResponse list(int page, int size, String sort, String search, List<DemandPlanningStatus> status,
-            String type, String origin, String urgency, DemandNature nature,
+            List<String> type, String origin, String urgency, List<DemandNature> nature,
             UUID committeeId, BigDecimal scoreMin, BigDecimal scoreMax, UUID strategicPlanId,
             UUID operationalPlanId, UUID strategicPillarId, UUID strategicObjectiveId, UUID programId,
-            String requester, String businessArea, String directionCode, LocalDate createdFrom, LocalDate createdTo,
-            String createdBy) {
+            String requester, String businessArea, List<String> directionCode, List<String> areaCode, List<String> domainCode,
+            List<String> importCode, LocalDate createdFrom, LocalDate createdTo, String createdBy) {
         if (scoreMin != null && scoreMax != null && scoreMin.compareTo(scoreMax) > 0) {
             throw new BadRequestException("scoreMin não pode ser maior que scoreMax");
         }
@@ -668,22 +671,36 @@ public class DemandService {
                     cb.like(cb.lower(root.get("directionName")), like),
                     cb.like(cb.lower(root.get("areaCode")), like),
                     cb.like(cb.lower(root.get("directionCode")), like),
-                    cb.like(cb.lower(root.get("easyVistaRef")), like)));
+                    cb.like(cb.lower(root.get("easyVistaRef")), like),
+                    cb.like(cb.lower(root.get("importCode")), like)));
         }
-        if (type != null)
-            spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("type").get("code")), norm(type)));
+        List<String> types = upperCodes(type);
+        if (!types.isEmpty())
+            spec = spec.and((r, q, cb) -> cb.upper(r.get("type").get("code")).in(types));
         if (origin != null)
             spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("origin")), norm(origin)));
         if (urgency != null)
             spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("urgency")), norm(urgency)));
-        if (nature != null)
-            spec = spec.and((r, q, cb) -> cb.equal(r.get("nature"), nature));
+        List<DemandNature> natures = nature == null ? List.of() : nature.stream().filter(Objects::nonNull).distinct().toList();
+        if (!natures.isEmpty())
+            spec = spec.and((r, q, cb) -> r.get("nature").in(natures));
         if (requester != null)
             spec = spec.and((r, q, cb) -> cb.like(cb.lower(r.get("requester")), "%" + requester.toLowerCase() + "%"));
         if (businessArea != null)
             spec = spec.and((r, q, cb) -> cb.like(cb.lower(r.get("areaName")), "%" + businessArea.toLowerCase() + "%"));
-        if (directionCode != null && !directionCode.isBlank())
-            spec = spec.and((r, q, cb) -> cb.equal(cb.upper(r.get("directionCode")), norm(directionCode)));
+        List<String> directions = upperCodes(directionCode);
+        /* The direction is responsible, or takes part as Implementação or Interveniente. */
+        if (!directions.isEmpty())
+            spec = spec.and((r, q, cb) -> DemandAccessService.involvesDirections(r, q, cb, directions));
+        List<String> importCodes = upperCodes(importCode);
+        if (!importCodes.isEmpty())
+            spec = spec.and((r, q, cb) -> cb.upper(r.get("importCode")).in(importCodes));
+        List<String> areas = upperCodes(areaCode);
+        if (!areas.isEmpty())
+            spec = spec.and((r, q, cb) -> cb.upper(r.get("areaCode")).in(areas));
+        List<String> domains = upperCodes(domainCode);
+        if (!domains.isEmpty())
+            spec = spec.and((r, q, cb) -> cb.upper(r.get("domain").get("code")).in(domains));
         if (createdFrom != null) {
             Instant from = createdFrom.atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
             spec = spec.and((r, q, cb) -> cb.greaterThanOrEqualTo(r.get("createdAt"), from));
@@ -858,6 +875,7 @@ public class DemandService {
         d.setNature(req.nature() != null ? req.nature() : DemandNature.NORMAL);
         d.setSponsor(req.sponsor());
         d.setType(resolveType(req.typeId(), req.typeCode()));
+        applyImportCode(d, req.importCode());
         d.setOrigin(normalizedOrigin);
         d.setEasyVistaRef(req.easyVistaRef());
         syncSuppliers(d, req.supplierIds());
@@ -938,7 +956,7 @@ public class DemandService {
                 .toList();
         List<DemandSuccessCriterionResponse> successCriteriaResponses = successCriteria.list(d.getId());
         List<DemandDependencyDtos.Response> dependencyResponses = dependencyService.listByDemand(d.getId());
-        return new DemandResponse(d.getId(), d.getCode(), d.getTitle(), strategicPillar, strategicElement,
+        return new DemandResponse(d.getId(), d.getCode(), d.getImportCode(), d.getTitle(), strategicPillar, strategicElement,
                 strategicObjective, d.getSummary(), d.getRequester(), d.getAreaName(),
             d.getAreaCode(), d.getDirectionName(), d.getDirectionCode(), d.getDirectionParticipationType(), d.getNature(), d.getSponsor(), d.getTypeId(), typeCode, d.getOrigin(), d.getEasyVistaRef(),
                 d.getDomainId(), domainCode, d.getBudgetLineId(), budgetLineCode, d.getImpactedSystem(),
@@ -1021,6 +1039,18 @@ public class DemandService {
                     Map.of("typeId", typeId.toString(), "typeCode", code));
         }
         return requireActivePhaseModel(model.getId());
+    }
+
+    /** The chosen codes, trimmed and upper-cased, without blanks; empty when none was chosen. */
+    static List<String> upperCodes(List<String> values) {
+        if (values == null) {
+            return List.of();
+        }
+        return values.stream()
+                .filter(value -> value != null && !value.isBlank())
+                .map(value -> value.trim().toUpperCase(Locale.ROOT))
+                .distinct()
+                .toList();
     }
 
     /** Fields of the demand the list can be ordered by (the table's sortable columns). */
@@ -1292,6 +1322,23 @@ public class DemandService {
             String dependenciesIdentified) {
     }
 
+    /**
+     * O código de importação só muda quando vem no pedido (vazio limpa-o) e não pode repetir o de
+     * outra demanda ativa: é por ele que as fases seguintes da importação encontram a demanda.
+     */
+    private void applyImportCode(Demand d, String requested) {
+        if (requested == null) {
+            return;
+        }
+        String importCode = requested.isBlank() ? null : requested.trim();
+        if (importCode != null && !importCode.equalsIgnoreCase(d.getImportCode())
+                && demands.existsByImportCodeIgnoreCaseAndDeletedAtIsNull(importCode)) {
+            throw domain(HttpStatus.CONFLICT, "DEMAND_IMPORT_CODE_EXISTS",
+                    "Já existe uma demanda importada com o código " + importCode, Map.of("importCode", importCode));
+        }
+        d.setImportCode(importCode);
+    }
+
     private Create mergePatch(Demand d, Patch p) {
         return new Create(
                 p.title() != null ? p.title() : d.getTitle(),
@@ -1309,6 +1356,7 @@ public class DemandService {
                 p.sponsor() != null ? p.sponsor() : d.getSponsor(),
                 p.typeId() != null || hasText(p.typeCode()) ? p.typeId() : d.getTypeId(),
                 p.typeCode(),
+                p.importCode(),
                 p.origin() != null ? p.origin() : d.getOrigin(),
                 p.easyVistaRef() != null ? p.easyVistaRef() : d.getEasyVistaRef(),
                 p.supplierIds(),
@@ -1337,7 +1385,7 @@ public class DemandService {
     }
 
     private Create toCreate(Update u) {
-        return new Create(u.title(), null, null, null, u.summary(), u.requester(), u.areaName(), u.areaCode(), u.directionName(), u.directionCode(), u.directionParticipationType(), u.nature(), u.sponsor(), u.typeId(), u.typeCode(),
+        return new Create(u.title(), null, null, null, u.summary(), u.requester(), u.areaName(), u.areaCode(), u.directionName(), u.directionCode(), u.directionParticipationType(), u.nature(), u.sponsor(), u.typeId(), u.typeCode(), u.importCode(),
                 u.origin(), u.easyVistaRef(), u.supplierIds(), u.domainId(), u.budgetLineId(), u.impactedSystem(), u.currentEvidence(),
                 u.problemStatement(), u.desiredOutcome(), u.proposedResponse(), u.urgency(), u.estimatedBudget(),
                 u.desiredDate(), u.mandatoryDeadline(), u.notes(), u.risksIdentified(),

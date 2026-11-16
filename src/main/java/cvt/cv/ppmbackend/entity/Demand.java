@@ -41,6 +41,10 @@ public class Demand extends BaseEntity {
     @Column(nullable = false, unique = true, length = 20)
     private String code;
 
+    /** Código da demanda na folha de importação (Ex.: DMK-2027-001); liga as fases seguintes da importação. */
+    @Column(name = "import_code", length = 60)
+    private String importCode;
+
     @Column(nullable = false, length = 250)
     private String title;
 

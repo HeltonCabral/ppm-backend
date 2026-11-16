@@ -39,6 +39,11 @@ public record UserAccess(String userName, Set<String> permissions, List<Directio
         return has(VIEW_ALL) || editAll();
     }
 
+    /** Vê as demandas das suas direções; quem as edita (Gestor da direção) também as vê. */
+    public boolean viewsDirection() {
+        return has(VIEW_DIRECTION) || has(EDIT_DIRECTION);
+    }
+
     /** Códigos das direções em vigor, em maiúsculas. */
     public Set<String> directionCodes() {
         return directions.stream()

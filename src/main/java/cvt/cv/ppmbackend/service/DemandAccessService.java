@@ -9,6 +9,9 @@ import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import cvt.cv.ppmbackend.exception.DomainException;
 import cvt.cv.ppmbackend.repository.DemandParticipatingDirectionRepository;
 import cvt.cv.ppmbackend.repository.DemandRepository;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
@@ -30,7 +33,8 @@ import java.util.UUID;
  * demanda (se a direção responsável mudar, o acesso acompanha logo).
  *
  * <p><b>Ver</b>: {@code demanda_ver_todas}/{@code demanda_editar_todas}; ou criou a demanda; ou tem
- * {@code demanda_ver_direcao} e a direção responsável ou uma participante é uma das suas.
+ * {@code demanda_ver_direcao} ou {@code demanda_editar_direcao} e a direção responsável ou uma
+ * participante (Implementação ou Interveniente) é uma das suas.
  *
  * <p><b>Editar</b>: {@code demanda_editar_todas}; ou {@code demanda_editar_direcao} e a direção
  * <i>responsável</i> é uma das suas; ou criou a demanda e esta ainda está em rascunho.
@@ -75,17 +79,25 @@ public class DemandAccessService {
             List<Predicate> anyOf = new ArrayList<>();
             anyOf.add(cb.equal(cb.lower(root.get("createdBy")), access.userName()));
             Set<String> codes = access.directionCodes();
-            if (access.has(UserAccess.VIEW_DIRECTION) && !codes.isEmpty()) {
-                anyOf.add(cb.upper(root.get("directionCode")).in(codes));
-                Subquery<UUID> participating = query.subquery(UUID.class);
-                Root<DemandParticipatingDirection> pd = participating.from(DemandParticipatingDirection.class);
-                participating.select(pd.get("id")).where(
-                        cb.equal(pd.get("demand"), root),
-                        cb.upper(pd.get("directionCode")).in(codes));
-                anyOf.add(cb.exists(participating));
+            if (access.viewsDirection() && !codes.isEmpty()) {
+                anyOf.add(involvesDirections(root, query, cb, codes));
             }
             return cb.or(anyOf.toArray(Predicate[]::new));
         };
+    }
+
+    /**
+     * A demanda é de uma destas direções (códigos em maiúsculas): responsável, ou participante como
+     * Implementação ou Interveniente. Serve ao acesso e ao filtro por direção das listas.
+     */
+    public static Predicate involvesDirections(Path<Demand> demand, CriteriaQuery<?> query, CriteriaBuilder cb,
+            Collection<String> codes) {
+        Subquery<UUID> participating = query.subquery(UUID.class);
+        Root<DemandParticipatingDirection> pd = participating.from(DemandParticipatingDirection.class);
+        participating.select(pd.get("id")).where(
+                cb.equal(pd.get("demand"), demand),
+                cb.upper(pd.get("directionCode")).in(codes));
+        return cb.or(cb.upper(demand.get("directionCode")).in(codes), cb.exists(participating));
     }
 
     public Specification<Demand> visibleToCurrentUser() {
@@ -96,7 +108,7 @@ public class DemandAccessService {
         if (access.viewAll() || access.isCreator(demand.getCreatedBy())) {
             return true;
         }
-        if (!access.has(UserAccess.VIEW_DIRECTION)) {
+        if (!access.viewsDirection()) {
             return false;
         }
         return access.belongsTo(demand.getDirectionCode())

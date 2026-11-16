@@ -169,14 +169,35 @@ class DemandTypeCodeTest {
         return model;
     }
 
+    @Test
+    void importCodeIsKeptTrimmed() {
+        service.create(create(projTiId, null, " DMK-2027-001 "), "helton");
+
+        assertThat(savedDemand.getImportCode()).isEqualTo("DMK-2027-001");
+    }
+
+    @Test
+    void importCodeOfAnotherDemandIsRejected() {
+        lenient().when(demands.existsByImportCodeIgnoreCaseAndDeletedAtIsNull("DMK-2027-001")).thenReturn(true);
+
+        assertThatThrownBy(() -> service.create(create(projTiId, null, "DMK-2027-001"), "helton"))
+                .isInstanceOf(DomainException.class)
+                .satisfies(e -> assertThat(((DomainException) e).getCode()).isEqualTo("DEMAND_IMPORT_CODE_EXISTS"));
+        verify(demands, never()).save(any(Demand.class));
+    }
+
     private static Create create(UUID typeId, String typeCode) {
+        return create(typeId, typeCode, null);
+    }
+
+    private static Create create(UUID typeId, String typeCode, String importCode) {
         return new Create(
                 "Demanda importada", null, null, null,
                 "Resumo", "requerente",
                 null, null,
                 "DSI", "DSI",
                 DirectionParticipationType.IMPLEMANTATION, null, "sponsor",
-                typeId, typeCode, "MANUAL", null, null, null, null,
+                typeId, typeCode, importCode, "MANUAL", null, null, null, null,
                 null, null,
                 "Problema", "Resultado esperado", null,
                 "HIGH", null, null, null, null, null, null, null,

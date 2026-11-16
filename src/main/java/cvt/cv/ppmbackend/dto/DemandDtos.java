@@ -77,6 +77,8 @@ public final class DemandDtos {
                         UUID typeId,
                         /** Alternativa ao typeId: o código do modelo de fases (Ex.: PROJ_TI). */
                         @Size(max = 50) String typeCode,
+                        /** Código da demanda na folha de importação Excel; único entre as demandas ativas. */
+                        @Size(max = 60) String importCode,
                         @Size(max = 80) String origin,
                         @Size(max = 120) String easyVistaRef,
                         Set<UUID> supplierIds,
@@ -136,6 +138,8 @@ public final class DemandDtos {
                         UUID typeId,
                         /** Alternativa ao typeId: o código do modelo de fases (Ex.: PROJ_TI). */
                         @Size(max = 50) String typeCode,
+                        /** Código da demanda na folha de importação Excel; único entre as demandas ativas. */
+                        @Size(max = 60) String importCode,
                         @Size(max = 80) String origin,
                         @Size(max = 120) String easyVistaRef,
                         Set<UUID> supplierIds,
@@ -180,6 +184,8 @@ public final class DemandDtos {
                         UUID typeId,
                         /** Alternativa ao typeId: o código do modelo de fases (Ex.: PROJ_TI). */
                         @Size(max = 50) String typeCode,
+                        /** Código da demanda na folha de importação Excel; único entre as demandas ativas. */
+                        @Size(max = 60) String importCode,
                         @Size(max = 80) String origin,
                         @Size(max = 120) String easyVistaRef,
                         Set<UUID> supplierIds,
@@ -309,6 +315,7 @@ public final class DemandDtos {
         public record DemandResponse(
                         UUID id,
                         String code,
+                        String importCode,
                         String title,
                         StrategicPillarSummary strategicPillar,
                         StrategicElementSummary strategicElement,
