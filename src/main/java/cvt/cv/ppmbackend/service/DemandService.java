@@ -336,6 +336,11 @@ public class DemandService {
         UUID previousTypeId = d.getType() == null ? null : d.getType().getId();
         Create merged = mergePatch(d, req);
         apply(merged, d);
+        /* A null in the PATCH means "leave it"; these are emptied only when named in `clear`. */
+        if (req.clear() != null) {
+            if (req.clear().contains("estimatedBudget")) d.setEstimatedBudget(null);
+            if (req.clear().contains("budgetLineId")) d.setBudgetLine(null);
+        }
         applyTypeFields(d, previousTypeId, req.typeFields());
         handleScoreRelevantChanges(d, previousScoreInputs);
         invalidateComplexityIfNeeded(d, previousComplexityInputs,
@@ -1055,7 +1060,7 @@ public class DemandService {
 
     /** Fields of the demand the list can be ordered by (the table's sortable columns). */
     private static final Set<String> LIST_SORT_FIELDS = Set.of(
-            "createdAt", "code", "title", "directionCode", "requester", "estimatedBudget", "desiredDate", "urgency");
+            "createdAt", "code", "title", "directionCode", "areaCode", "requester", "estimatedBudget", "desiredDate", "urgency");
 
     /**
      * "campo" or "campo,asc|desc"; descending when no direction is given, as before. The id breaks ties,

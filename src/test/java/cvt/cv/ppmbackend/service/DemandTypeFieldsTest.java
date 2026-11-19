@@ -156,6 +156,23 @@ class DemandTypeFieldsTest {
         assertThat(response.typeFields()).isEmpty();
     }
 
+    // A null in the PATCH keeps the value; naming the field in `clear` empties it.
+    @Test
+    void patchClearsTheBudgetOnlyWhenAsked() throws Exception {
+        service.create(create(formacaoId, null), "helton");
+        savedDemand.setEstimatedBudget(new java.math.BigDecimal("773233"));
+
+        service.patch(savedDemand.getId(), mapper.readValue("{\"title\":\"Outro título\",\"estimatedBudget\":null}",
+                cvt.cv.ppmbackend.dto.DemandDtos.Patch.class), "helton");
+        assertThat(savedDemand.getEstimatedBudget()).isEqualByComparingTo("773233");
+
+        service.patch(savedDemand.getId(), mapper.readValue("{\"clear\":[\"estimatedBudget\",\"budgetLineId\"]}",
+                cvt.cv.ppmbackend.dto.DemandDtos.Patch.class), "helton");
+        assertThat(savedDemand.getEstimatedBudget()).isNull();
+        assertThat(savedDemand.getBudgetLine()).isNull();
+        assertThat(savedDemand.getTitle()).isEqualTo("Outro título");
+    }
+
     private Create create(UUID typeId, String typeFields) throws Exception {
         return mapper.readValue(body(typeId, typeFields), Create.class);
     }

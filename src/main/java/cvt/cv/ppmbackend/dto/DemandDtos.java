@@ -210,7 +210,9 @@ public final class DemandDtos {
                         @Valid List<DirectionAreaInput> areas,
                         JsonNode customPlanning,
                         /** Presente: substitui o objeto inteiro; ausente: mantém-se (ou limpa-se se o Tipo mudar). */
-                        JsonNode typeFields) {
+                        JsonNode typeFields,
+                        /** Campos a limpar (null não chega: o PATCH ignora nulls). Aceites: estimatedBudget, budgetLineId. */
+                        List<String> clear) {
         }
 
         public record AssignCommitteeRequest(@NotNull UUID committeeId) {

@@ -25,6 +25,8 @@ class DemandListSortTest {
     void directionIsRead() {
         assertThat(DemandService.listSort("estimatedBudget,asc").getOrderFor("estimatedBudget").getDirection()).isEqualTo(Sort.Direction.ASC);
         assertThat(DemandService.listSort("desiredDate, DESC").getOrderFor("desiredDate").getDirection()).isEqualTo(Sort.Direction.DESC);
+        /* The table's «Área responsável» column. */
+        assertThat(DemandService.listSort("areaCode,asc").getOrderFor("areaCode").getDirection()).isEqualTo(Sort.Direction.ASC);
     }
 
     @Test

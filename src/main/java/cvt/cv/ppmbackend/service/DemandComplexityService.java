@@ -171,8 +171,15 @@ public class DemandComplexityService {
                 : demand.getDesiredDate().minusMonths(level.getEstimatedDurationMonths()));
         demand.setUpdatedBy(actor == null || actor.isBlank() ? "system" : actor.trim());
         Demand saved = demands.save(demand);
-        planningCycleService.transitionStatus(cycle, cvt.cv.ppmbackend.enums.DemandPlanningStatus.IN_ANALYSIS,
-                "Complexidade recalculada", actor);
+        /*
+         * Calculating it is what takes a complete draft into analysis. Past Draft the numbers are
+         * refreshed and the cycle stays where it is: editing a demand in prioritisation (or in
+         * review, or in the backlog) must not send it back to analysis.
+         */
+        if (cycle.getStatus() == cvt.cv.ppmbackend.enums.DemandPlanningStatus.DRAFT) {
+            planningCycleService.transitionStatus(cycle, cvt.cv.ppmbackend.enums.DemandPlanningStatus.IN_ANALYSIS,
+                    "Complexidade recalculada", actor);
+        }
 
         return new DemandComplexityResponse(saved.getId(), saved.getDirectionsCount(), saved.getProfilesCount(),
                 saved.getTotalResources(), saved.getDependenciesCount(), saved.getComplexityScore(),
