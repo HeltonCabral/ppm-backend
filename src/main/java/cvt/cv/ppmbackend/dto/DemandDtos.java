@@ -2,6 +2,7 @@ package cvt.cv.ppmbackend.dto;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import cvt.cv.ppmbackend.dto.DemandPlanningCycleDtos;
+import cvt.cv.ppmbackend.enums.AreaRole;
 import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import cvt.cv.ppmbackend.enums.DirectionParticipationType;
 import cvt.cv.ppmbackend.enums.DemandComplexity;
@@ -22,6 +23,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -45,6 +47,19 @@ public final class DemandDtos {
                         Integer displayOrder) {
         }
 
+        public record DirectionAreaInput(
+                        @NotBlank @Size(max = 60) String areaCode,
+                        @Size(max = 120) String areaName,
+                        @NotNull AreaRole role) {
+        }
+
+        public record DirectionAreaResponse(
+                        UUID id,
+                        String areaCode,
+                        String areaName,
+                        AreaRole role) {
+        }
+
         public record Create(
                         @NotBlank @Size(max = 250) String title,
                         UUID strategicPillarId,
@@ -59,7 +74,11 @@ public final class DemandDtos {
                         DirectionParticipationType directionParticipationType,
                         DemandNature nature,
                         @Size(max = 150) String sponsor,
-                        @NotNull UUID typeId,
+                        UUID typeId,
+                        /** Alternativa ao typeId: o código do modelo de fases (Ex.: PROJ_TI). */
+                        @Size(max = 50) String typeCode,
+                        /** Código da demanda na folha de importação Excel; único entre as demandas ativas. */
+                        @Size(max = 60) String importCode,
                         @Size(max = 80) String origin,
                         @Size(max = 120) String easyVistaRef,
                         Set<UUID> supplierIds,
@@ -67,8 +86,8 @@ public final class DemandDtos {
                         UUID budgetLineId,
                         @Size(max = 150) String impactedSystem,
                         @Size(max = 10000) String currentEvidence,
-                        @NotBlank @Size(max = 10000) String problemStatement,
-                        @NotBlank @Size(max = 10000) String desiredOutcome,
+                        @Size(max = 10000) String problemStatement,
+                        @Size(max = 10000) String desiredOutcome,
                         @Size(max = 10000) String proposedResponse,
                         @Size(max = 40) String urgency,
                         @PositiveOrZero BigDecimal estimatedBudget,
@@ -81,7 +100,25 @@ public final class DemandDtos {
                         @Valid List<AttachmentInput> attachments,
                         @Valid List<ParticipatingDirectionCreate> participatingDirections,
                         @Valid List<DemandProfileRequirementInput> profileRequirements,
-                        @Valid List<DemandSuccessCriterionInput> successCriteria) {
+                        @Valid List<DemandSuccessCriterionInput> successCriteria,
+                        @Valid List<DirectionAreaInput> areas,
+                        JsonNode customPlanning,
+                        /** Presente: substitui o objeto inteiro; ausente: mantém-se (ou limpa-se se o Tipo mudar). */
+                        JsonNode typeFields) {
+        }
+
+        /**
+         * Opções de cópia de uma Demanda. Todos os campos são opcionais: quando
+         * omitidos, o título recebe o prefixo "Cópia de" e todas as coleções da
+         * demanda de origem são copiadas.
+         */
+        public record Duplicate(
+                        @Size(max = 250) String title,
+                        Boolean copyAttachments,
+                        Boolean copyParticipatingDirections,
+                        Boolean copyProfileRequirements,
+                        Boolean copySuccessCriteria,
+                        Boolean copyStrategicFraming) {
         }
 
         public record Update(
@@ -98,45 +135,11 @@ public final class DemandDtos {
                         DirectionParticipationType directionParticipationType,
                         DemandNature nature,
                         @Size(max = 150) String sponsor,
-                        @NotNull UUID typeId,
-                        @Size(max = 80) String origin,
-                        @Size(max = 120) String easyVistaRef,
-                        Set<UUID> supplierIds,
-                        UUID domainId,
-                        UUID budgetLineId,
-                        @Size(max = 150) String impactedSystem,
-                        @Size(max = 10000) String currentEvidence,
-                        @NotBlank @Size(max = 10000) String problemStatement,
-                        @NotBlank @Size(max = 10000) String desiredOutcome,
-                        @Size(max = 10000) String proposedResponse,
-                        @Size(max = 40) String urgency,
-                        @PositiveOrZero BigDecimal estimatedBudget,
-                        LocalDate desiredDate,
-                        LocalDate mandatoryDeadline,
-                        @Size(max = 10000) String notes,
-                        @Size(max = 10000) String risksIdentified,
-                        @Size(max = 10000) String dependenciesIdentified,
-                        @PositiveOrZero Integer dependenciesCount,
-                        @Valid List<ParticipatingDirectionCreate> participatingDirections,
-                        @Valid List<DemandProfileRequirementInput> profileRequirements,
-                        @Valid List<DemandSuccessCriterionInput> successCriteria) {
-        }
-
-        public record Patch(
-                        @Size(max = 250) String title,
-                        UUID strategicPillarId,
-                        UUID strategicElementId,
-                        UUID strategicObjectiveId,
-                        @Size(max = 1000) String summary,
-                        @Size(max = 150) String requester,
-                        @Size(max = 120) String areaName,
-                        @Size(max = 60) String areaCode,
-                        @Size(max = 120) String directionName,
-                        @Size(max = 60) String directionCode,
-                        DirectionParticipationType directionParticipationType,
-                        DemandNature nature,
-                        @Size(max = 150) String sponsor,
                         UUID typeId,
+                        /** Alternativa ao typeId: o código do modelo de fases (Ex.: PROJ_TI). */
+                        @Size(max = 50) String typeCode,
+                        /** Código da demanda na folha de importação Excel; único entre as demandas ativas. */
+                        @Size(max = 60) String importCode,
                         @Size(max = 80) String origin,
                         @Size(max = 120) String easyVistaRef,
                         Set<UUID> supplierIds,
@@ -157,34 +160,65 @@ public final class DemandDtos {
                         @PositiveOrZero Integer dependenciesCount,
                         @Valid List<ParticipatingDirectionCreate> participatingDirections,
                         @Valid List<DemandProfileRequirementInput> profileRequirements,
-                        @Valid List<DemandSuccessCriterionInput> successCriteria) {
+                        @Valid List<DemandSuccessCriterionInput> successCriteria,
+                        @Valid List<DirectionAreaInput> areas,
+                        JsonNode customPlanning,
+                        /** Presente: substitui o objeto inteiro; ausente: mantém-se (ou limpa-se se o Tipo mudar). */
+                        JsonNode typeFields) {
+        }
+
+        public record Patch(
+                        @Size(max = 250) String title,
+                        UUID strategicPillarId,
+                        UUID strategicElementId,
+                        UUID strategicObjectiveId,
+                        @Size(max = 1000) String summary,
+                        @Size(max = 150) String requester,
+                        @Size(max = 120) String areaName,
+                        @Size(max = 60) String areaCode,
+                        @Size(max = 120) String directionName,
+                        @Size(max = 60) String directionCode,
+                        DirectionParticipationType directionParticipationType,
+                        DemandNature nature,
+                        @Size(max = 150) String sponsor,
+                        UUID typeId,
+                        /** Alternativa ao typeId: o código do modelo de fases (Ex.: PROJ_TI). */
+                        @Size(max = 50) String typeCode,
+                        /** Código da demanda na folha de importação Excel; único entre as demandas ativas. */
+                        @Size(max = 60) String importCode,
+                        @Size(max = 80) String origin,
+                        @Size(max = 120) String easyVistaRef,
+                        Set<UUID> supplierIds,
+                        UUID domainId,
+                        UUID budgetLineId,
+                        @Size(max = 150) String impactedSystem,
+                        @Size(max = 10000) String currentEvidence,
+                        @Size(max = 10000) String problemStatement,
+                        @Size(max = 10000) String desiredOutcome,
+                        @Size(max = 10000) String proposedResponse,
+                        @Size(max = 40) String urgency,
+                        @PositiveOrZero BigDecimal estimatedBudget,
+                        LocalDate desiredDate,
+                        LocalDate mandatoryDeadline,
+                        @Size(max = 10000) String notes,
+                        @Size(max = 10000) String risksIdentified,
+                        @Size(max = 10000) String dependenciesIdentified,
+                        @PositiveOrZero Integer dependenciesCount,
+                        @Valid List<ParticipatingDirectionCreate> participatingDirections,
+                        @Valid List<DemandProfileRequirementInput> profileRequirements,
+                        @Valid List<DemandSuccessCriterionInput> successCriteria,
+                        @Valid List<DirectionAreaInput> areas,
+                        JsonNode customPlanning,
+                        /** Presente: substitui o objeto inteiro; ausente: mantém-se (ou limpa-se se o Tipo mudar). */
+                        JsonNode typeFields,
+                        /** Campos a limpar (null não chega: o PATCH ignora nulls). Aceites: estimatedBudget, budgetLineId. */
+                        List<String> clear) {
         }
 
         public record AssignCommitteeRequest(@NotNull UUID committeeId) {
         }
 
         public record SendToStrategicCommitteeRequest(@Size(max = 4000) String reason) {
-        }
-
-        public record ApproveRequest(
-                        @Size(max = 10000) String justification,
-                        @Size(max = 200) String meetingReference) {
-        }
-
-        public record ConditionallyApproveRequest(
-                        @Size(max = 10000) String condition,
-                        @NotBlank @Size(max = 10000) String justification,
-                        @Size(max = 200) String meetingReference) {
-        }
-
-        public record RequestRevisionRequest(
-                        @NotBlank @Size(max = 10000) String justification,
-                        @Size(max = 200) String meetingReference) {
-        }
-
-        public record BacklogRequest(
-                        @NotBlank @Size(max = 10000) String justification,
-                        @Size(max = 200) String meetingReference) {
         }
 
         public record SendToStrategicCommitteeBulkRequest(
@@ -239,6 +273,9 @@ public final class DemandDtos {
         public record LookupValueSummary(UUID id, String category, String code, String label) {
         }
 
+        public record PhaseModelSummary(UUID id, String code, String name, boolean active) {
+        }
+
         public record StrategicPlanSummary(UUID id, String name, Integer startYear, Integer endYear, String status) {
         }
 
@@ -280,6 +317,7 @@ public final class DemandDtos {
         public record DemandResponse(
                         UUID id,
                         String code,
+                        String importCode,
                         String title,
                         StrategicPillarSummary strategicPillar,
                         StrategicElementSummary strategicElement,
@@ -326,7 +364,7 @@ public final class DemandDtos {
                         Instant updatedAt,
                         String updatedBy,
                         Long version,
-                        LookupValueSummary typeData,
+                        PhaseModelSummary typeData,
                         LookupValueSummary domainData,
                         LookupValueSummary budgetLineData,
                         DemandPlanningCycleDtos.Response currentPlanningCycle,
@@ -335,7 +373,15 @@ public final class DemandDtos {
                         List<DemandProfileRequirementResponse> profileRequirements,
                         List<SupplierSummary> suppliers,
                         List<DemandSuccessCriterionResponse> successCriteria,
-                        List<DemandDependencyDtos.Response> dependencies) {
+                        List<DemandDependencyDtos.Response> dependencies,
+                        List<DirectionAreaResponse> areas,
+                        CustomPlanningResponse customPlanning,
+                        Map<String, Object> typeFields,
+                        DemandPermissions permissions) {
+        }
+
+        /** O que o utilizador atual pode fazer com a demanda (regra de acesso por direção). */
+        public record DemandPermissions(boolean canView, boolean canEdit) {
         }
 
         public record DemandHistoryResponse(
@@ -435,7 +481,8 @@ public final class DemandDtos {
                         @Size(max = 120) String areaName,
                         @Size(max = 60) String areaCode,
                         @NotNull DirectionParticipationType participationType,
-                        @Size(max = 10000) String observations) {
+                        @Size(max = 10000) String observations,
+                        @Valid List<DirectionAreaInput> areas) {
         }
 
         public record ParticipatingDirectionUpdate(
@@ -444,7 +491,8 @@ public final class DemandDtos {
                         @Size(max = 120) String areaName,
                         @Size(max = 60) String areaCode,
                         @NotNull DirectionParticipationType participationType,
-                        @Size(max = 10000) String observations) {
+                        @Size(max = 10000) String observations,
+                        @Valid List<DirectionAreaInput> areas) {
         }
 
         public record ParticipatingDirectionResponse(
@@ -459,13 +507,18 @@ public final class DemandDtos {
                         String createdBy,
                         Instant updatedAt,
                         String updatedBy,
-                        Long version) {
+                        Long version,
+                        List<DirectionAreaResponse> areas) {
         }
 
         public record DemandProfileRequirementInput(
+                        UUID id,
                         @NotNull UUID profileId,
-                        @NotNull @Positive Integer requiredQuantity,
-                        @NotNull Integer allocationPercentage) {
+                        @NotNull @jakarta.validation.constraints.Min(value = 1,
+                                message = "requiredQuantity deve ser maior ou igual a 1.")
+                        Integer requiredQuantity,
+                        @NotEmpty(message = "A lista de fases é obrigatória.")
+                        List<@NotNull(message = "A lista de fases não pode conter valores nulos.") UUID> phaseIds) {
         }
 
         public record DemandProfileRequirementResponse(
@@ -476,6 +529,61 @@ public final class DemandDtos {
                         Integer availableCapacity,
                         boolean profileActive,
                         Integer requiredQuantity,
-                        Integer allocationPercentage) {
+                        List<DemandPhaseRef> phases) {
+        }
+
+        public record DemandPhaseRef(
+                        UUID phaseId,
+                        String phaseCode,
+                        String phaseName,
+                        Integer phaseSequence) {
+        }
+
+        public record CustomPlanningInput(
+                        UUID baseTypeId,
+                        List<CustomPhaseInput> phases) {
+        }
+
+        public record CustomPhaseInput(
+                        UUID id,
+                        UUID sourcePhaseId,
+                        String name,
+                        String description,
+                        Integer sequence,
+                        BigDecimal durationWeightPercentage,
+                        Boolean active,
+                        List<CustomResourceInput> resources) {
+        }
+
+        public record CustomResourceInput(
+                        UUID id,
+                        UUID profileId,
+                        BigDecimal allocationPercentage) {
+        }
+
+        public record CustomPlanningResponse(
+                        UUID baseTypeId,
+                        List<CustomPhaseResponse> phases) {
+        }
+
+        public record CustomPhaseResponse(
+                        UUID id,
+                        UUID sourcePhaseId,
+                        String name,
+                        String description,
+                        Integer sequence,
+                        BigDecimal durationWeightPercentage,
+                        boolean active,
+                        List<CustomResourceResponse> resources) {
+        }
+
+        public record CustomResourceResponse(
+                        UUID id,
+                        UUID profileId,
+                        BigDecimal allocationPercentage,
+                        String profileName,
+                        String directionCode,
+                        String directionName,
+                        boolean profileActive) {
         }
 }

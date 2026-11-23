@@ -10,7 +10,7 @@ import java.math.RoundingMode;
 
 @Entity
 @Table(name = "kpi_measurements", uniqueConstraints = @UniqueConstraint(name = "uk_kpi_measurement_year", columnNames = {
-        "kpi_id", "year" }))
+        "kpi_id", "`year`" }))
 @Getter
 @Setter
 @NoArgsConstructor
@@ -20,7 +20,7 @@ public class KpiMeasurement extends BaseEntity {
     @JoinColumn(name = "kpi_id", nullable = false)
     @JsonIgnore
     private Kpi kpi;
-    @Column(nullable = false)
+    @Column(name = "`year`", nullable = false)
     private Integer year;
     @Column(precision = 18, scale = 4)
     private BigDecimal current;

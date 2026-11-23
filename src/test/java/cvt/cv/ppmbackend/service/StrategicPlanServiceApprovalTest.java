@@ -86,14 +86,13 @@ class StrategicPlanServiceApprovalTest {
         cycle.setId(UUID.randomUUID());
         cycle.setDemand(demand);
         cycle.setStrategicPlan(plan);
-        cycle.setStatus(DemandPlanningStatus.AWAITING_COMMITTEE);
+        cycle.setStatus(DemandPlanningStatus.PRIORITIZED);
 
-        List<DemandPlanningStatus> approvedStatuses = List.of(
-                DemandPlanningStatus.APPROVED, DemandPlanningStatus.CONDITIONALLY_APPROVED);
+        List<DemandPlanningStatus> approvedStatuses = List.of(DemandPlanningStatus.IN_PLAN);
         List<DemandPlanningStatus> backlogStatuses = List.of(
                 DemandPlanningStatus.DRAFT, DemandPlanningStatus.IN_ANALYSIS,
-                DemandPlanningStatus.IN_PRIORITIZATION, DemandPlanningStatus.AWAITING_COMMITTEE,
-                DemandPlanningStatus.BACKLOG);
+                DemandPlanningStatus.IN_REVIEW, DemandPlanningStatus.IN_PRIORITIZATION,
+                DemandPlanningStatus.PRIORITIZED, DemandPlanningStatus.BACKLOG);
 
         when(plans.findById(planId)).thenReturn(Optional.of(plan));
         when(planningCycles.findAllByStrategicPlan_Id(planId)).thenReturn(List.of(cycle));
@@ -128,13 +127,13 @@ class StrategicPlanServiceApprovalTest {
         assertThat(backlogProject.getStatus()).isEqualTo(ProjectStatus.BACKLOG);
         assertThat(backlogProject.getCreatedFromDemandBacklog()).isTrue();
         assertThat(backlogProject.getCreatedFromConditionalPlanApproval()).isFalse();
-        assertThat(cycle.getStatus()).isEqualTo(DemandPlanningStatus.CONVERTED_TO_PROJECT);
+        assertThat(cycle.getStatus()).isEqualTo(DemandPlanningStatus.BACKLOG);
         assertThat(cycle.getConvertedProject()).isSameAs(backlogProject);
         assertThat(cycle.getConvertedBy()).isEqualTo(actorId);
         assertThat(cycle.getConvertedAt()).isNotNull();
-        verify(scoreLifecycle).applyStatusTransition(cycle, DemandPlanningStatus.AWAITING_COMMITTEE,
-                DemandPlanningStatus.CONVERTED_TO_PROJECT,
-                "Demanda convertida em projeto de backlog pela aprovação final do Plano Estratégico");
+        verify(scoreLifecycle).applyStatusTransition(cycle, DemandPlanningStatus.PRIORITIZED,
+                DemandPlanningStatus.BACKLOG,
+                "Demanda não selecionada pelo cenário final do Plano Estratégico");
     }
 
     @Test
@@ -143,8 +142,7 @@ class StrategicPlanServiceApprovalTest {
         StrategicPlan plan = plan(planId, StrategicPlanStatus.DRAFT);
 
         when(plans.findById(planId)).thenReturn(Optional.of(plan));
-        when(planningCycles.findAllByStrategicPlan_IdAndStatusIn(planId, List.of(
-                DemandPlanningStatus.APPROVED, DemandPlanningStatus.CONDITIONALLY_APPROVED)))
+        when(planningCycles.findAllByStrategicPlan_IdAndStatusIn(planId, List.of(DemandPlanningStatus.IN_PLAN)))
                 .thenReturn(List.of());
         when(plans.save(plan)).thenReturn(plan);
 
@@ -175,8 +173,8 @@ class StrategicPlanServiceApprovalTest {
 
         List<DemandPlanningStatus> backlogStatuses = List.of(
                 DemandPlanningStatus.DRAFT, DemandPlanningStatus.IN_ANALYSIS,
-                DemandPlanningStatus.IN_PRIORITIZATION, DemandPlanningStatus.AWAITING_COMMITTEE,
-                DemandPlanningStatus.BACKLOG);
+                DemandPlanningStatus.IN_REVIEW, DemandPlanningStatus.IN_PRIORITIZATION,
+                DemandPlanningStatus.PRIORITIZED, DemandPlanningStatus.BACKLOG);
 
         when(plans.findById(planId)).thenReturn(Optional.of(plan));
         when(planningCycles.findAllByStrategicPlan_Id(planId)).thenReturn(List.of(cycle));
@@ -200,7 +198,7 @@ class StrategicPlanServiceApprovalTest {
 
         assertThat(projectCaptor.getValue().getStatus()).isEqualTo(ProjectStatus.BACKLOG);
         assertThat(projectCaptor.getValue().getCreatedFromDemandBacklog()).isTrue();
-        assertThat(cycle.getStatus()).isEqualTo(DemandPlanningStatus.CONVERTED_TO_PROJECT);
+        assertThat(cycle.getStatus()).isEqualTo(DemandPlanningStatus.BACKLOG);
         assertThat(cycle.getConvertedProject()).isSameAs(projectCaptor.getValue());
         assertThat(response.backlogProjectsCreated()).isEqualTo(1);
         assertThat(response.movedToBacklog()).isZero();

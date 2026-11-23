@@ -10,9 +10,10 @@ import cvt.cv.ppmbackend.dto.CommitteeSuggestionResponse;
 import cvt.cv.ppmbackend.dto.ComplexityConfigDtos.DemandComplexityResponse;
 import cvt.cv.ppmbackend.dto.DemandCapacityAnalysisDtos.CapacityAnalysisResponse;
 import cvt.cv.ppmbackend.dto.DemandCommitteeDashboardDtos.CommitteeDashboardResponse;
-import cvt.cv.ppmbackend.dto.DemandCommitteeDecisionDtos;
+import cvt.cv.ppmbackend.dto.DemandCommitteeActionDtos;
 import cvt.cv.ppmbackend.enums.DemandNature;
 import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
+import cvt.cv.ppmbackend.service.DemandAccessService;
 import cvt.cv.ppmbackend.service.DemandCapacityAnalysisService;
 import cvt.cv.ppmbackend.service.DemandCommitteeDashboardService;
 import cvt.cv.ppmbackend.service.DemandComplexityService;
@@ -34,14 +35,17 @@ public class DemandController {
     private final DemandComplexityService complexity;
     private final DemandCapacityAnalysisService capacityAnalysis;
     private final DemandCommitteeDashboardService committeeDashboard;
+    private final DemandAccessService access;
 
     public DemandController(DemandService demands, DemandScoringService scoring, DemandComplexityService complexity,
-            DemandCapacityAnalysisService capacityAnalysis, DemandCommitteeDashboardService committeeDashboard) {
+            DemandCapacityAnalysisService capacityAnalysis, DemandCommitteeDashboardService committeeDashboard,
+            DemandAccessService access) {
         this.demands = demands;
         this.scoring = scoring;
         this.complexity = complexity;
         this.capacityAnalysis = capacityAnalysis;
         this.committeeDashboard = committeeDashboard;
+        this.access = access;
     }
 
     private String actor(String header) {
@@ -55,6 +59,15 @@ public class DemandController {
         return demands.create(req, actor(user));
     }
 
+    @PostMapping("/{id}/duplicate")
+    @ResponseStatus(HttpStatus.CREATED)
+    public DemandResponse duplicate(@PathVariable UUID id,
+            @Valid @RequestBody(required = false) Duplicate req,
+            @RequestHeader(value = "X-User-Id", required = false) String user) {
+        access.requireView(id);
+        return demands.duplicate(id, req, actor(user));
+    }
+
     @GetMapping
     public PagedDemandsResponse list(
             @RequestParam(defaultValue = "0") int page,
@@ -62,10 +75,11 @@ public class DemandController {
             @RequestParam(defaultValue = "createdAt") String sort,
             @RequestParam(required = false) String search,
             @RequestParam(required = false) List<DemandPlanningStatus> status,
-            @RequestParam(required = false) String type,
+            /* Type, nature, direction and domain take several values: ?type=A&type=B (or "A,B"). */
+            @RequestParam(required = false) List<String> type,
             @RequestParam(required = false) String origin,
             @RequestParam(required = false) String urgency,
-            @RequestParam(required = false) DemandNature nature,
+            @RequestParam(required = false) List<DemandNature> nature,
             @RequestParam(required = false) UUID committeeId,
             @RequestParam(required = false) BigDecimal scoreMin,
             @RequestParam(required = false) BigDecimal scoreMax,
@@ -76,13 +90,26 @@ public class DemandController {
             @RequestParam(required = false) UUID programId,
             @RequestParam(required = false) String requester,
             @RequestParam(required = false) String businessArea,
-            @RequestParam(required = false) String directionCode,
+            @RequestParam(required = false) List<String> directionCode,
+            /* The demand's responsible area (areaCode), several values. */
+            @RequestParam(required = false) List<String> areaCode,
+            @RequestParam(required = false) List<String> domainCode,
+            /*
+             * Areas taking part in the demand, as "DIR/AREA" (or just "AREA" for any direction):
+             * the responsible direction's intervenient areas and the areas of the participating
+             * directions. The demand's own responsible area does not count (that is areaCode).
+             */
+            @RequestParam(required = false) List<String> participatingArea,
+            /* The code a demand had in the Excel import sheet, several values. */
+            @RequestParam(required = false) List<String> importCode,
             @RequestParam(required = false) LocalDate createdFrom,
-            @RequestParam(required = false) LocalDate createdTo) {
+            @RequestParam(required = false) LocalDate createdTo,
+            @RequestHeader(value = "X-User-Id", required = false) String user) {
         return demands.list(page, size, sort, search, status, type, origin, urgency, nature,
                 committeeId, scoreMin, scoreMax,
                 strategicPlanId, operationalPlanId, strategicPillarId, strategicObjectiveId, programId,
-                requester, businessArea, directionCode, createdFrom, createdTo);
+                requester, businessArea, directionCode, areaCode, domainCode, participatingArea, importCode, createdFrom, createdTo,
+                actor(user));
     }
 
     @GetMapping("/strategic-plans/{strategicPlanId}/committee-dashboard")
@@ -100,18 +127,29 @@ public class DemandController {
         return demands.listPortfolioRanked(page, size, strategicPlanId, directionCode, areaCode);
     }
 
+    @GetMapping("/in-review")
+    public PagedDemandsResponse listInReview(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) UUID strategicPlanId) {
+        return demands.listInReview(page, size, strategicPlanId);
+    }
+
     @GetMapping("/{id}")
     public DemandResponse get(@PathVariable UUID id) {
+        access.requireView(id);
         return demands.get(id);
     }
 
     @GetMapping("/{id}/planning-history")
     public List<DemandPlanningCycleDtos.PlanningHistoryItem> planningHistory(@PathVariable UUID id) {
+        access.requireView(id);
         return demands.planningHistory(id);
     }
 
     @GetMapping("/{id}/planning-cycles/{strategicPlanId}")
     public DemandPlanningCycleDtos.Response getCycle(@PathVariable UUID id, @PathVariable UUID strategicPlanId) {
+        access.requireView(id);
         return demands.getCycle(id, strategicPlanId);
     }
 
@@ -119,6 +157,7 @@ public class DemandController {
     public DemandPlanningCycleDtos.Response updateCycleEnrichment(@PathVariable UUID id,
             @PathVariable UUID strategicPlanId, @Valid @RequestBody EnrichmentRequest req,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
+        access.requireEdit(id);
         return demands.updateCycleEnrichment(id, strategicPlanId, req, actor(user));
     }
 
@@ -142,40 +181,29 @@ public class DemandController {
         return demands.assignCommittee(id, strategicPlanId, request, actor(user));
     }
 
-    @PostMapping("/{id}/planning-cycles/{strategicPlanId}/approve")
-    public DemandResponse approve(@PathVariable UUID id, @PathVariable UUID strategicPlanId,
-            @Valid @RequestBody(required = false) ApproveRequest req,
-            @RequestHeader(value = "X-User-Id", required = false) String user) {
-        return demands.approveDecision(id, strategicPlanId, req, actor(user));
-    }
-
-    @GetMapping("/{id}/planning-cycles/{strategicPlanId}/committee-decisions")
-    public List<DemandCommitteeDecisionDtos.Response> committeeDecisions(@PathVariable UUID id,
+    @GetMapping("/{id}/planning-cycles/{strategicPlanId}/committee-actions")
+    public List<DemandCommitteeActionDtos.Response> committeeActions(@PathVariable UUID id,
             @PathVariable UUID strategicPlanId) {
-        return demands.committeeDecisions(id, strategicPlanId);
+        return demands.committeeActions(id, strategicPlanId);
     }
 
-    @PostMapping("/{id}/planning-cycles/{strategicPlanId}/conditionally-approve")
-    public DemandResponse conditionallyApprove(@PathVariable UUID id, @PathVariable UUID strategicPlanId,
-            @Valid @RequestBody ConditionallyApproveRequest req,
-            @RequestHeader(value = "X-User-Id", required = false) String user) {
-        return demands.conditionallyApprove(id, strategicPlanId, req, actor(user));
-    }
-
+    /**
+     * Pedido de revisão — disponível a Comités especializados e ao Comité Estratégico.
+     * A aprovação já não é individual: resulta da seleção de um cenário de portfólio.
+     */
     @PostMapping("/{id}/planning-cycles/{strategicPlanId}/request-revision")
     public DemandResponse requestRevision(@PathVariable UUID id, @PathVariable UUID strategicPlanId,
-            @Valid @RequestBody RequestRevisionRequest req,
+            @Valid @RequestBody DemandCommitteeActionDtos.RequestRevisionRequest req,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
         return demands.requestRevision(id, strategicPlanId, req, actor(user));
     }
 
-    @PostMapping("/{id}/planning-cycles/{strategicPlanId}/backlog")
-    public DemandResponse moveToBacklog(@PathVariable UUID id, @PathVariable UUID strategicPlanId,
-            @Valid @RequestBody BacklogRequest req,
+    @PostMapping("/{id}/planning-cycles/{strategicPlanId}/resolve-revision")
+    public DemandResponse resolveRevision(@PathVariable UUID id, @PathVariable UUID strategicPlanId,
+            @RequestBody(required = false) DemandCommitteeActionDtos.ResolveRevisionRequest req,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
-        return demands.moveToBacklog(id, strategicPlanId, req, actor(user));
+        return demands.resolveRevision(id, strategicPlanId, req, actor(user));
     }
-
     @PostMapping("/{id}/planning-cycles/{strategicPlanId}/send-to-strategic-committee")
     public DemandResponse sendToStrategicCommittee(
             @PathVariable UUID id,
@@ -197,18 +225,21 @@ public class DemandController {
     @PutMapping("/{id}")
     public DemandResponse update(@PathVariable UUID id, @Valid @RequestBody Update req,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
+        access.requireEdit(id);
         return demands.update(id, req, actor(user));
     }
 
     @PatchMapping("/{id}")
     public DemandResponse patch(@PathVariable UUID id, @Valid @RequestBody Patch req,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
+        access.requireEdit(id);
         return demands.patch(id, req, actor(user));
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable UUID id, @RequestHeader(value = "X-User-Id", required = false) String user) {
+        access.requireEdit(id);
         demands.delete(id, actor(user));
     }
 
@@ -221,6 +252,7 @@ public class DemandController {
 
     @GetMapping("/{id}/history")
     public List<DemandHistoryResponse> history(@PathVariable UUID id) {
+        access.requireView(id);
         return demands.history(id);
     }
 
@@ -228,6 +260,7 @@ public class DemandController {
     @ResponseStatus(HttpStatus.CREATED)
     public DemandAttachmentResponse addAttachment(@PathVariable UUID id, @Valid @RequestBody AttachmentCreate req,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
+        access.requireEdit(id);
         return demands.addAttachment(id, req, actor(user));
     }
 
@@ -235,6 +268,7 @@ public class DemandController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteAttachment(@PathVariable UUID id, @PathVariable UUID attachmentId,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
+        access.requireEdit(id);
         demands.deleteAttachment(id, attachmentId, actor(user));
     }
 
@@ -247,6 +281,7 @@ public class DemandController {
 
     @GetMapping("/{id}/planning-cycles/{strategicPlanId}/scoring")
     public DemandScoringResponse getScoring(@PathVariable UUID id, @PathVariable UUID strategicPlanId) {
+        access.requireView(id);
         return scoring.getByDemandAndPlan(id, strategicPlanId);
     }
 
@@ -259,6 +294,7 @@ public class DemandController {
 
     @GetMapping("/{id}/planning-cycles/{strategicPlanId}/capacity-analysis")
     public CapacityAnalysisResponse getCapacityAnalysis(@PathVariable UUID id, @PathVariable UUID strategicPlanId) {
+        access.requireView(id);
         return capacityAnalysis.analyze(id, strategicPlanId);
     }
 
@@ -278,6 +314,7 @@ public class DemandController {
 
     @GetMapping("/{id}/participating-directions")
     public List<ParticipatingDirectionResponse> listParticipatingDirections(@PathVariable UUID id) {
+        access.requireView(id);
         return demands.listParticipatingDirections(id);
     }
 
@@ -286,6 +323,7 @@ public class DemandController {
     public ParticipatingDirectionResponse addParticipatingDirection(@PathVariable UUID id,
             @Valid @RequestBody ParticipatingDirectionCreate req,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
+        access.requireEdit(id);
         return demands.addParticipatingDirection(id, req, actor(user));
     }
 
@@ -294,6 +332,7 @@ public class DemandController {
             @PathVariable UUID directionId,
             @Valid @RequestBody ParticipatingDirectionUpdate req,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
+        access.requireEdit(id);
         return demands.updateParticipatingDirection(id, directionId, req, actor(user));
     }
 
@@ -302,6 +341,7 @@ public class DemandController {
     public void deleteParticipatingDirection(@PathVariable UUID id,
             @PathVariable UUID directionId,
             @RequestHeader(value = "X-User-Id", required = false) String user) {
+        access.requireEdit(id);
         demands.deleteParticipatingDirection(id, directionId, actor(user));
     }
 }

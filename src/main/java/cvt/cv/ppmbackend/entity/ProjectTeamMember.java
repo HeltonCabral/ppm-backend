@@ -50,6 +50,24 @@ public class ProjectTeamMember extends BaseEntity {
     @Column(nullable = false, length = 20)
     private MemberType type;
 
+    /** Perfil do projeto que este membro preenche; nulo para membros sem perfil previsto. */
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "project_profile_id")
+    @JsonIgnore
+    private ProjectProfile projectProfile;
+
+    /** Parte (1–100) de uma pessoa a tempo inteiro dedicada ao projeto. Os registos antigos ficam com 100. */
+    @Column(name = "allocation_percentage")
+    @org.hibernate.annotations.ColumnDefault("100")
+    private Integer allocationPercentage = 100;
+
+    /** Início e fim da alocação; nulos = período efetivo (fases do perfil, senão datas do projeto). */
+    @Column(name = "start_date")
+    private java.time.LocalDate startDate;
+
+    @Column(name = "end_date")
+    private java.time.LocalDate endDate;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;

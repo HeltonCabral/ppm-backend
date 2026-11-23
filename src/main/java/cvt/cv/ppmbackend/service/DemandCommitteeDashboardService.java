@@ -1,22 +1,22 @@
 package cvt.cv.ppmbackend.service;
 
+import cvt.cv.ppmbackend.dto.CapacityDtos.ProfileUtilization;
 import cvt.cv.ppmbackend.dto.DemandCommitteeDashboardDtos.CommitteeDashboardResponse;
+import cvt.cv.ppmbackend.enums.CapacityStatus;
 import cvt.cv.ppmbackend.dto.DemandCommitteeDashboardDtos.PortfolioAttentionPoint;
 import cvt.cv.ppmbackend.dto.DemandCommitteeDashboardDtos.ScenarioSummary;
 import cvt.cv.ppmbackend.dto.DemandCommitteeDashboardDtos.StrategicPlanHeader;
 import cvt.cv.ppmbackend.entity.DemandDependency;
-import cvt.cv.ppmbackend.entity.DemandPlanningCycle;
 import cvt.cv.ppmbackend.entity.DemandProfileRequirement;
+import cvt.cv.ppmbackend.entity.DemandPlanningCycle;
 import cvt.cv.ppmbackend.entity.Profile;
 import cvt.cv.ppmbackend.entity.StrategicPlan;
 import cvt.cv.ppmbackend.enums.DemandDependencyType;
 import cvt.cv.ppmbackend.enums.DemandNature;
 import cvt.cv.ppmbackend.enums.DemandPlanningStatus;
 import cvt.cv.ppmbackend.exception.ResourceNotFoundException;
-import cvt.cv.ppmbackend.repository.DemandCommitteeDecisionRepository;
 import cvt.cv.ppmbackend.repository.DemandDependencyRepository;
 import cvt.cv.ppmbackend.repository.DemandPlanningCycleRepository;
-import cvt.cv.ppmbackend.repository.DemandProfileRequirementRepository;
 import cvt.cv.ppmbackend.repository.StrategicPlanRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,7 +33,7 @@ import static cvt.cv.ppmbackend.enums.DemandPlanningStatus.*;
 @Transactional
 public class DemandCommitteeDashboardService {
 
-    private static final Set<DemandPlanningStatus> ELIGIBLE_STATUSES = Set.of(IN_PRIORITIZATION, AWAITING_COMMITTEE);
+    private static final Set<DemandPlanningStatus> ELIGIBLE_STATUSES = Set.of(PRIORITIZED);
     private static final int CRITICAL_DEADLINE_DAYS = 90;
     private static final int TOP_DEPENDENCIES_RANK = 20;
     private static final int TOP_BACKLOG_RANK = 30;
@@ -47,19 +47,20 @@ public class DemandCommitteeDashboardService {
 
     private final StrategicPlanRepository strategicPlans;
     private final DemandPlanningCycleRepository planningCycles;
-    private final DemandProfileRequirementRepository profileRequirements;
+    private final DemandRequirementsResolver profileRequirements;
     private final DemandDependencyRepository dependencies;
-    private final DemandCommitteeDecisionRepository decisions;
+    private final CapacityCalculator capacityCalculator;
 
     public DemandCommitteeDashboardService(StrategicPlanRepository strategicPlans,
             DemandPlanningCycleRepository planningCycles,
-            DemandProfileRequirementRepository profileRequirements,
-            DemandDependencyRepository dependencies, DemandCommitteeDecisionRepository decisions) {
+            DemandRequirementsResolver profileRequirements,
+            DemandDependencyRepository dependencies,
+            CapacityCalculator capacityCalculator) {
         this.strategicPlans = strategicPlans;
         this.planningCycles = planningCycles;
         this.profileRequirements = profileRequirements;
         this.dependencies = dependencies;
-        this.decisions = decisions;
+        this.capacityCalculator = capacityCalculator;
     }
 
     @Transactional(readOnly = true)
@@ -71,26 +72,26 @@ public class DemandCommitteeDashboardService {
 
         List<DemandPlanningCycle> planCycles = planningCycles.findAllByStrategicPlan_Id(strategicPlanId);
         List<DemandPlanningCycle> attentionCycles = planCycles.stream()
-                .filter(c -> c.getStatus() == AWAITING_COMMITTEE)
+                .filter(c -> c.getStatus() == PRIORITIZED)
                 .toList();
         List<DemandPlanningCycle> scenarioCycles = planCycles.stream()
-                .filter(c -> c.getStatus() == APPROVED || c.getStatus() == CONDITIONALLY_APPROVED)
+                .filter(c -> c.getStatus() == IN_PLAN)
                 .toList();
 
-        Set<UUID> decidedCycleIds = decisions.findDecidedCycleIdsByStrategicPlan(plan.getId());
-        int deliberated = (int) planCycles.stream().filter(c -> decidedCycleIds.contains(c.getId())).count();
+        int deliberated = (int) planCycles.stream()
+                .filter(c -> c.getStatus() == IN_PLAN || c.getStatus() == BACKLOG).count();
         StrategicPlanHeader header = new StrategicPlanHeader(
                 plan.getId(), plan.getName(), plan.getStartYear(), plan.getEndYear(),
                 plan.getStatus().name(), plan.getStatus().label(), deliberated, planCycles.size(),
                 percentage(deliberated, planCycles.size()));
 
-        ScenarioSummary scenario = scenarioSummary(planCycles, scenarioCycles, decidedCycleIds);
+        ScenarioSummary scenario = scenarioSummary(planCycles, scenarioCycles);
 
         Set<UUID> attentionDemandIds = attentionCycles.stream()
                 .map(c -> c.getDemand().getId())
                 .collect(Collectors.toSet());
-        List<DemandProfileRequirement> attentionRequirements = attentionDemandIds.isEmpty()
-                ? List.of() : profileRequirements.findByDemand_IdIn(attentionDemandIds);
+        List<DemandProfileRequirement> attentionRequirements = profileRequirements.forDemands(
+                attentionCycles.stream().map(DemandPlanningCycle::getDemand).toList());
 
         List<PortfolioAttentionPoint> attentionPoints = List.of(
                 mandatoryDemandsPoint(attentionCycles),
@@ -103,24 +104,22 @@ public class DemandCommitteeDashboardService {
     }
 
     private ScenarioSummary scenarioSummary(List<DemandPlanningCycle> planCycles,
-            List<DemandPlanningCycle> scenarioCycles, Set<UUID> decidedCycleIds) {
+            List<DemandPlanningCycle> scenarioCycles) {
         BigDecimal requiredBudget = scenarioCycles.stream()
                 .map(c -> c.getDemand().getEstimatedBudget())
                 .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(2, RoundingMode.HALF_UP);
 
-        Set<UUID> scenarioDemandIds = scenarioCycles.stream().map(c -> c.getDemand().getId())
-                .collect(Collectors.toSet());
-        List<DemandProfileRequirement> scenarioRequirements = scenarioDemandIds.isEmpty()
-                ? List.of() : profileRequirements.findByDemand_IdIn(scenarioDemandIds);
-        BigDecimal expectedCapacityPercentage = coveragePercentage(scenarioRequirements);
+        List<DemandProfileRequirement> scenarioRequirements = profileRequirements.forDemands(
+                scenarioCycles.stream().map(DemandPlanningCycle::getDemand).toList());
+        BigDecimal expectedCapacityPercentage = capacityCalculator.summarize(scenarioRequirements).coveragePercentage();
 
         int pendingDecisions = (int) planCycles.stream()
-                .filter(c -> ELIGIBLE_STATUSES.contains(c.getStatus()) && !decidedCycleIds.contains(c.getId()))
+                .filter(c -> ELIGIBLE_STATUSES.contains(c.getStatus()))
                 .count();
-        int openConditions = (int) scenarioCycles.stream()
-                .filter(c -> c.getStatus() == CONDITIONALLY_APPROVED)
+        int openConditions = (int) planCycles.stream()
+                .filter(c -> c.getStatus() == IN_REVIEW)
                 .count();
 
         return new ScenarioSummary(scenarioCycles.size(), requiredBudget, expectedCapacityPercentage,
@@ -160,22 +159,30 @@ public class DemandCommitteeDashboardService {
                 "Prazos críticos", count, detail);
     }
 
+    /**
+     * Mesmo cálculo mensal da análise de plano/cenário: perfis fora dos limites (estado diferente de
+     * OK) e quantas Demandas os requerem. DANGER a partir de RESTRICTED; só CONDITIONED dá WARNING.
+     */
     private PortfolioAttentionPoint restrictedCapacityPoint(List<DemandProfileRequirement> liveRequirements) {
-        List<ProfileDeficit> deficits = deficitProfiles(liveRequirements);
-        Set<UUID> deficitProfileIds = deficits.stream().map(d -> d.profile().getId()).collect(Collectors.toSet());
+        List<ProfileUtilization> outOfBounds = capacityCalculator.summarize(liveRequirements).outOfBoundsProfiles();
+        Set<UUID> outOfBoundsIds = outOfBounds.stream().map(ProfileUtilization::profileId).collect(Collectors.toSet());
         int impactedDemands = (int) liveRequirements.stream()
-                .filter(r -> deficitProfileIds.contains(r.getProfile().getId()))
+                .filter(r -> outOfBoundsIds.contains(r.getProfile().getId()))
                 .map(r -> r.getDemand().getId())
                 .distinct()
                 .count();
 
-        List<String> topNames = deficits.stream().limit(3).map(d -> d.profile().getName()).toList();
+        List<String> topNames = outOfBounds.stream().limit(3).map(ProfileUtilization::profileName).toList();
         String detail = topNames.isEmpty()
-                ? "Sem perfis em défice de capacidade"
-                : "Principais perfis em défice: " + joinWithAnd(topNames);
+                ? "Sem perfis fora dos limites de capacidade"
+                : "Principais perfis fora dos limites: " + joinWithAnd(topNames);
+        CapacityStatus worst = outOfBounds.stream().map(ProfileUtilization::status)
+                .reduce(CapacityStatus.OK, CapacityStatus::worst);
+        String severity = worst == CapacityStatus.OK ? "OK"
+                : worst == CapacityStatus.CONDITIONED ? "WARNING" : "DANGER";
 
-        return new PortfolioAttentionPoint("CAPACITY_RESTRICTED", impactedDemands > 0 ? "DANGER" : "OK",
-                "Capacidade restrita", impactedDemands, detail);
+        return new PortfolioAttentionPoint("CAPACITY_RESTRICTED", severity, "Capacidade restrita", impactedDemands,
+                detail);
     }
 
     private PortfolioAttentionPoint blockingDependenciesPoint(List<DemandPlanningCycle> liveCycles,
@@ -217,56 +224,6 @@ public class DemandCommitteeDashboardService {
                 fromBacklog.size(), detail);
     }
 
-    private List<ProfileDeficit> deficitProfiles(List<DemandProfileRequirement> requirements) {
-        Map<UUID, BigDecimal> requiredByProfile = new HashMap<>();
-        Map<UUID, Profile> profilesById = new HashMap<>();
-        for (DemandProfileRequirement requirement : requirements) {
-            Profile profile = requirement.getProfile();
-            profilesById.put(profile.getId(), profile);
-            BigDecimal required = BigDecimal.valueOf(requirement.getRequiredQuantity())
-                    .multiply(BigDecimal.valueOf(requirement.getAllocationPercentage()))
-                    .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
-            requiredByProfile.merge(profile.getId(), required, BigDecimal::add);
-        }
-
-        List<ProfileDeficit> deficits = new ArrayList<>();
-        for (Map.Entry<UUID, BigDecimal> entry : requiredByProfile.entrySet()) {
-            Profile profile = profilesById.get(entry.getKey());
-            BigDecimal available = profile.getAvailableCapacity() == null
-                    ? BigDecimal.ZERO : BigDecimal.valueOf(profile.getAvailableCapacity());
-            BigDecimal required = entry.getValue();
-            if (required.compareTo(available) > 0) {
-                deficits.add(new ProfileDeficit(profile, required.subtract(available)));
-            }
-        }
-        deficits.sort(Comparator.comparing(ProfileDeficit::deficit).reversed());
-        return deficits;
-    }
-
-    private BigDecimal coveragePercentage(List<DemandProfileRequirement> requirements) {
-        Map<UUID, BigDecimal> requiredByProfile = new HashMap<>();
-        Map<UUID, Profile> profilesById = new HashMap<>();
-        for (DemandProfileRequirement requirement : requirements) {
-            Profile profile = requirement.getProfile();
-            profilesById.put(profile.getId(), profile);
-            BigDecimal required = BigDecimal.valueOf(requirement.getRequiredQuantity())
-                    .multiply(BigDecimal.valueOf(requirement.getAllocationPercentage()))
-                    .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
-            requiredByProfile.merge(profile.getId(), required, BigDecimal::add);
-        }
-        BigDecimal available = profilesById.values().stream()
-                .map(Profile::getAvailableCapacity)
-                .filter(Objects::nonNull)
-                .map(BigDecimal::valueOf)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal required = requiredByProfile.values().stream()
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        if (required.signum() == 0) {
-            return null;
-        }
-        return available.multiply(BigDecimal.valueOf(100)).divide(required, 2, RoundingMode.HALF_UP);
-    }
-
     private String joinWithAnd(List<String> items) {
         if (items.size() == 1) {
             return items.get(0);
@@ -276,8 +233,5 @@ public class DemandCommitteeDashboardService {
 
     private int percentage(int value, int total) {
         return total == 0 ? 0 : (int) Math.round(value * 100.0 / total);
-    }
-
-    private record ProfileDeficit(Profile profile, BigDecimal deficit) {
     }
 }

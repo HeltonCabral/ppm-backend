@@ -31,3 +31,10 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Configuração com credenciais (cada ambiente mantém a sua cópia local) ###
+/src/main/resources/application.properties
+/src/main/resources/application-prod.properties
+
+### Saída de compilação ###
+target-codex/

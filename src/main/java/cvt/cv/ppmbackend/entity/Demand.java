@@ -13,13 +13,17 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.ColumnDefault;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
+import org.hibernate.type.SqlTypes;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -36,6 +40,10 @@ import java.util.UUID;
 public class Demand extends BaseEntity {
     @Column(nullable = false, unique = true, length = 20)
     private String code;
+
+    /** Código da demanda na folha de importação (Ex.: DMK-2027-001); liga as fases seguintes da importação. */
+    @Column(name = "import_code", length = 60)
+    private String importCode;
 
     @Column(nullable = false, length = 250)
     private String title;
@@ -71,8 +79,8 @@ public class Demand extends BaseEntity {
     private String sponsor;
 
     @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "type_id", nullable = false)
-    private LookupValue type;
+    @JoinColumn(name = "type_id", nullable = true)
+    private PhaseModel  type;
 
     @Column(nullable = false, length = 80)
     private String origin = "MANUAL";
@@ -103,10 +111,10 @@ public class Demand extends BaseEntity {
     @Column(name = "current_evidence", columnDefinition = "TEXT")
     private String currentEvidence;
 
-    @Column(name = "problem_statement", columnDefinition = "TEXT", nullable = false)
+    @Column(name = "problem_statement", columnDefinition = "TEXT")
     private String problemStatement;
 
-    @Column(name = "desired_outcome", columnDefinition = "TEXT", nullable = false)
+    @Column(name = "desired_outcome", columnDefinition = "TEXT")
     private String desiredOutcome;
 
     @Column(name = "proposed_response", columnDefinition = "TEXT")
@@ -165,6 +173,24 @@ public class Demand extends BaseEntity {
     @OneToMany(mappedBy = "demand", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     private List<DemandParticipatingDirection> participatingDirections = new ArrayList<>();
+
+    /**
+     * Planeamento personalizado da Demanda. Quando contém fases, substitui o planeamento do Tipo
+     * (fases + recursos) sem alterar o Tipo. Vazio quando a Demanda segue o Tipo.
+     */
+    @OneToMany(mappedBy = "demand", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @OrderBy("sequence ASC")
+    @JsonIgnore
+    private List<DemandCustomPhase> customPhases = new ArrayList<>();
+
+    /** Tipo de origem do planeamento personalizado (informativo). Nulo quando segue o Tipo. */
+    @Column(name = "custom_planning_base_type_id")
+    private UUID customPlanningBaseTypeId;
+
+    /** Valores dos campos específicos do Tipo, por {@code key} (ver {@code PhaseModel.fields}). */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "type_fields")
+    private Map<String, Object> typeFields = new LinkedHashMap<>();
 
     @OneToMany(mappedBy = "demand", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore

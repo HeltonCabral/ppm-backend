@@ -122,6 +122,104 @@ public class Project extends BaseEntity {
     private ProjectExecution execution;
     @OneToMany(mappedBy = "project", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ProjectTeamMember> teamMembers = new ArrayList<>();
+
+    // ----- Herdado da Demanda de origem (ver DemandProjectInheritanceService) -----
+
+    /** Tipo de Demanda (modelo de fases) de origem. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "phase_model_id")
+    @JsonIgnore
+    private PhaseModel phaseModel;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "demand_nature", length = 30)
+    private DemandNature demandNature;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private DemandComplexity complexity;
+
+    @Column(length = 150)
+    private String sponsor;
+
+    @Column(length = 150)
+    private String requester;
+
+    @Column(name = "easy_vista_ref", length = 120)
+    private String easyVistaRef;
+
+    @Column(name = "problem_statement", columnDefinition = "TEXT")
+    private String problemStatement;
+
+    @Column(name = "current_evidence", columnDefinition = "TEXT")
+    private String currentEvidence;
+
+    @Column(name = "proposed_response", columnDefinition = "TEXT")
+    private String proposedResponse;
+
+    @Column(name = "risks_identified", columnDefinition = "TEXT")
+    private String risksIdentified;
+
+    @Column(name = "dependencies_identified", columnDefinition = "TEXT")
+    private String dependenciesIdentified;
+
+    @Column(name = "mandatory_deadline")
+    private java.time.LocalDate mandatoryDeadline;
+
+    /** Valores dos campos específicos do Tipo, tal como estavam na Demanda. */
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+    @Column(name = "type_fields")
+    private Map<String, Object> typeFields = new LinkedHashMap<>();
+
+    @OneToMany(mappedBy = "project", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<ProjectArea> areas = new ArrayList<>();
+
+    @OneToMany(mappedBy = "project", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("displayOrder ASC")
+    private List<ProjectSuccessCriterion> successCriteria = new ArrayList<>();
+
+    /** Perfis previstos, herdados dos recursos da Demanda; a equipa é preenchida dentro deles. */
+    @OneToMany(mappedBy = "project", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("profileName ASC")
+    private List<ProjectProfile> profiles = new ArrayList<>();
+
+    /** Plano por fases (ver ProjectPhaseService). */
+    @OneToMany(mappedBy = "project", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("sequence ASC")
+    @JsonIgnore
+    private List<ProjectPhase> phases = new ArrayList<>();
+
+    // ----- Desnormalizados para as listas não carregarem coleções -----
+
+    /** Nome da primeira fase IN_PROGRESS; atualizado a cada alteração das fases. */
+    @Column(name = "current_phase_name", length = 150)
+    private String currentPhaseName;
+
+    @Column(name = "last_report_at")
+    private Instant lastReportAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "last_report_status", length = 10)
+    private ExecutiveStatus lastReportStatus;
+
+    @Column(name = "last_report_needs_support")
+    private Boolean lastReportNeedsSupport;
+
+    /** Orçamento e fim previstos na criação do projeto (antes de pedidos de alteração). */
+    @Column(name = "baseline_budget", precision = 18, scale = 2)
+    private BigDecimal baselineBudget;
+
+    @Column(name = "baseline_end_date")
+    private java.time.LocalDate baselineEndDate;
+
+    /** Utilizador do AD do gestor do projeto (regra "Editar" do filtro de projetos). */
+    @Column(name = "project_manager_username", length = 100)
+    private String projectManagerUsername;
+
+    @JsonProperty("phaseModelId")
+    public UUID getPhaseModelId() {
+        return phaseModel != null ? phaseModel.getId() : null;
+    }
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;

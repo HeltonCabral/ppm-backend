@@ -112,9 +112,9 @@ public class DemandPlanningCycle extends BaseEntity {
     private String riskStatus;
 
     @OneToMany(mappedBy = "planningCycle", cascade = CascadeType.ALL, orphanRemoval = true)
-    @OrderBy("decisionAt DESC")
+    @OrderBy("requestedAt DESC")
     @JsonIgnore
-    private List<DemandCommitteeDecision> committeeDecisions = new ArrayList<>();
+    private List<DemandCommitteeAction> committeeActions = new ArrayList<>();
 
     @Column(name = "reprioritization_reason", length = 80)
     private String reprioritizationReason;

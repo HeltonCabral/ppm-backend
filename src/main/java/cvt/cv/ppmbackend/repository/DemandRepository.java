@@ -9,5 +9,7 @@ import java.util.UUID;
 public interface DemandRepository extends JpaRepository<Demand, UUID>, JpaSpecificationExecutor<Demand> {
     Optional<Demand> findByIdAndDeletedAtIsNull(UUID id);
 
+    boolean existsByImportCodeIgnoreCaseAndDeletedAtIsNull(String importCode);
+
     boolean existsByCode(String code);
 }

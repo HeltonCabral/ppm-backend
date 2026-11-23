@@ -14,10 +14,31 @@ public class StrategicElementService
     private final StrategicElementRepository elements;
     private final StrategicPillarService pillars;
 
-    public StrategicElementService(StrategicElementRepository r, StrategicPillarService p) {
+    private final cvt.cv.ppmbackend.repository.StrategicObjectiveRepository objectives;
+    private final cvt.cv.ppmbackend.repository.DemandPlanningCycleRepository planningCycles;
+
+    public StrategicElementService(StrategicElementRepository r, StrategicPillarService p,
+            cvt.cv.ppmbackend.repository.StrategicObjectiveRepository objectives,
+            cvt.cv.ppmbackend.repository.DemandPlanningCycleRepository planningCycles) {
         super(r, "Elemento estratégico");
         elements = r;
         pillars = p;
+        this.objectives = objectives;
+        this.planningCycles = planningCycles;
+    }
+
+    /**
+     * Um elemento ainda usado não se apaga: o Hibernate falharia no flush com uma TransientObjectException (500).
+     * Responde 409 com o que o impede.
+     */
+    @Override
+    public void delete(UUID id) {
+        StrategicElement element = findById(id);
+        java.util.Map<String, Long> usages = new java.util.LinkedHashMap<>();
+        usages.put("objetivos estratégicos", objectives.countByStrategicElement_Id(id));
+        usages.put("demandas", planningCycles.countByStrategicElement_Id(id));
+        StrategicUsage.requireUnused("o elemento", element.getName(), "STRATEGIC_ELEMENT_IN_USE", usages);
+        super.delete(id);
     }
 
     protected StrategicElement newEntity() {

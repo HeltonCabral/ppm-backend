@@ -28,7 +28,7 @@ public class GlobalExceptionHandler {
     ResponseEntity<ApiError> validation(MethodArgumentNotValidException e) {
         Map<String, String> fields = new LinkedHashMap<>();
         e.getBindingResult().getFieldErrors().forEach(f -> fields.putIfAbsent(f.getField(), f.getDefaultMessage()));
-        return error(HttpStatus.UNPROCESSABLE_ENTITY, "VALIDATION_ERROR", "Dados inválidos.", fields);
+        return error(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Dados inválidos.", fields);
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)

@@ -1,0 +1,15 @@
+-- ---------------------------------------------------------------------------
+-- Remove a check constraint de project_event.type.
+--
+-- O Hibernate cria em PostgreSQL uma check constraint com os valores do enum
+-- ProjectEventType existentes na altura em que a tabela foi criada. Como o
+-- ddl-auto=update nunca a atualiza, tipos novos (ex.: PLAN_CHANGED) seriam
+-- recusados. A aplicação já a remove no arranque (ProjectPhaseBackfill); este
+-- script faz o mesmo à mão.
+--
+--   psql -h localhost -U postgres -d db_ppm \
+--        -f src/main/resources/db/2026-10-12-project-event-type-check.sql
+--
+-- O script é idempotente.
+-- ---------------------------------------------------------------------------
+ALTER TABLE IF EXISTS project_event DROP CONSTRAINT IF EXISTS project_event_type_check;

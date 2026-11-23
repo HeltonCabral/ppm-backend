@@ -28,4 +28,18 @@ public class Benefit extends BaseEntity {
     private LocalDate trackingDate;
     @Column(columnDefinition = "TEXT")
     private String notes;
+
+    @org.hibernate.annotations.CreationTimestamp
+    @Column(name = "created_at", updatable = false)
+    private java.time.Instant createdAt;
+
+    @Column(name = "created_by", length = 150)
+    private String createdBy;
+
+    @org.hibernate.annotations.UpdateTimestamp
+    @Column(name = "updated_at")
+    private java.time.Instant updatedAt;
+
+    @Column(name = "updated_by", length = 150)
+    private String updatedBy;
 }

@@ -5,6 +5,16 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+import java.time.LocalDate;
+import java.util.UUID;
+
+/**
+ * @param projectProfileId     perfil do projeto que o membro preenche (ver {@code GET /projects/{id}/profiles});
+ *                             opcional. Com perfil, {@code role} e a direção, quando vazios, vêm do perfil.
+ * @param allocationPercentage 1–100; por omissão 100
+ * @param startDate            início da alocação; nulo = período efetivo
+ * @param endDate              fim da alocação; ≥ {@code startDate}
+ */
 public record ProjectTeamMemberRequest(
         @Size(max = 50) String code,
         @Size(max = 200) String directionName,
@@ -14,5 +24,9 @@ public record ProjectTeamMemberRequest(
         @NotBlank @Size(max = 150) String name,
         @Size(max = 150) String email,
         @Size(max = 100) String role,
-        @NotNull MemberType type) {
+        @NotNull MemberType type,
+        UUID projectProfileId,
+        Integer allocationPercentage,
+        LocalDate startDate,
+        LocalDate endDate) {
 }

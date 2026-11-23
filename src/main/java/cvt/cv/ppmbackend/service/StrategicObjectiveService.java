@@ -9,8 +9,10 @@ import cvt.cv.ppmbackend.exception.BadRequestException;
 import cvt.cv.ppmbackend.repository.StrategicObjectiveRepository;
 import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -51,23 +53,34 @@ public class StrategicObjectiveService
         return e;
     }
 
+    /**
+     * Atualiza a meta de cada ano em vez de a apagar e recriar: o Hibernate insere antes de apagar no flush, e
+     * uma meta nova para um ano já existente violaria {@code uk_annual_target_year}.
+     */
     private void applyAnnualTargets(StrategicObjectiveCreateRequest r, StrategicObjective e, int start, int end) {
-        e.getAnnualTargets().clear();
-        if (r.annualTargets() == null)
-            return;
+        List<StrategicObjectiveCreateRequest.AnnualTargetRequest> requested =
+                r.annualTargets() == null ? List.of() : r.annualTargets();
         Set<Integer> years = new HashSet<>();
-        for (StrategicObjectiveCreateRequest.AnnualTargetRequest t : r.annualTargets()) {
+        for (StrategicObjectiveCreateRequest.AnnualTargetRequest t : requested) {
             if (t.year() < start || t.year() > end)
                 throw new BadRequestException("annualTarget.year " + t.year() + " fora do intervalo do objetivo");
             if (!years.add(t.year()))
                 throw new BadRequestException("annualTarget.year duplicado: " + t.year());
-            StrategicObjectiveAnnualTarget target = new StrategicObjectiveAnnualTarget();
-            target.setStrategicObjective(e);
-            target.setYear(t.year());
+        }
+        Map<Integer, StrategicObjectiveAnnualTarget> existing = new HashMap<>();
+        e.getAnnualTargets().forEach(target -> existing.put(target.getYear(), target));
+        e.getAnnualTargets().removeIf(target -> !years.contains(target.getYear()));
+        for (StrategicObjectiveCreateRequest.AnnualTargetRequest t : requested) {
+            StrategicObjectiveAnnualTarget target = existing.get(t.year());
+            if (target == null) {
+                target = new StrategicObjectiveAnnualTarget();
+                target.setStrategicObjective(e);
+                target.setYear(t.year());
+                e.getAnnualTargets().add(target);
+            }
             target.setTargetLabel(t.targetLabel());
             target.setTargetValue(t.targetValue());
             target.setWeight(t.weight());
-            e.getAnnualTargets().add(target);
         }
     }
 

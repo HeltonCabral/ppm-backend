@@ -37,21 +37,24 @@ public class DemandScoringService {
     private static final BigDecimal ZERO = BigDecimal.ZERO;
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
     private static final Set<DemandPlanningStatus> AUTO_STATUS_SCOPE = Set.of(
-            IN_ANALYSIS, IN_PRIORITIZATION, AWAITING_COMMITTEE);
+            IN_ANALYSIS, IN_PRIORITIZATION, PRIORITIZED);
     private final DemandPlanningCycleRepository cycles;
     private final DemandScoringRepository scoring;
     private final ScoringCriterionService criteria;
     private final DemandScoreLifecycleService scoreLifecycle;
     private final DemandPlanningCycleService planningCycleService;
+    private final DemandHistoryService historyService;
 
     public DemandScoringService(DemandPlanningCycleRepository cycles, DemandScoringRepository scoring,
             ScoringCriterionService criteria, DemandScoreLifecycleService scoreLifecycle,
-            DemandPlanningCycleService planningCycleService) {
+            DemandPlanningCycleService planningCycleService,
+            DemandHistoryService historyService) {
         this.cycles = cycles;
         this.scoring = scoring;
         this.criteria = criteria;
         this.scoreLifecycle = scoreLifecycle;
         this.planningCycleService = planningCycleService;
+        this.historyService = historyService;
     }
 
     public DemandScoringResponse getByCycle(DemandPlanningCycle cycle) {
@@ -77,6 +80,7 @@ public class DemandScoringService {
         scoreLifecycle.validateCanScore(cycle);
         String actor = actorId == null || actorId.isBlank() ? "system" : actorId;
         boolean fullReplacement = scoreLifecycle.requiresFullReplacement(cycle);
+        BigDecimal previousScoreTotal = readPreviousScoreTotal(cycle);
         if (fullReplacement) {
             validateCompleteRecalculation(request);
             List<DemandScoring> previousItems = scoring.findByPlanningCycle_IdOrderByCriterionOrderIndexAsc(cycle.getId());
@@ -106,7 +110,34 @@ public class DemandScoringService {
         updateStatusAfterScoring(cycle, recalculatedItems, actor);
         cycles.save(cycle);
 
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("scoreTotal", cycle.getScoreTotal());
+        if (previousScoreTotal != null) {
+            metadata.put("previousScoreTotal", previousScoreTotal);
+        }
+        historyService.log(cycle.getDemand(), "SCORE_CALCULATED", null, null,
+                "Score calculado", actor, actor, metadata);
+
         return mapResponse(cycle, recalculatedItems);
+    }
+
+    private BigDecimal readPreviousScoreTotal(DemandPlanningCycle cycle) {
+        if (cycle.getScoreTotal() != null) {
+            return cycle.getScoreTotal();
+        }
+        String snapshot = cycle.getPreviousScoreSnapshot();
+        if (snapshot == null || snapshot.isBlank()) {
+            return null;
+        }
+        try {
+            var node = scoreLifecycle.previousScoreSnapshot(cycle);
+            if (node == null || node.get("scoreTotal") == null || node.get("scoreTotal").isNull()) {
+                return null;
+            }
+            return new BigDecimal(node.get("scoreTotal").asText());
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     private void validateCompleteRecalculation(UpsertRequest request) {
@@ -392,6 +423,7 @@ public class DemandScoringService {
             cycle.getScoreInvalidatedAt(),
             cycle.getScoreInvalidationReason(),
             scoreLifecycle.previousScoreSnapshot(cycle),
-            dimensionTotals);
+            dimensionTotals,
+            scoreLifecycle.listHistory(cycle.getId()));
     }
 }

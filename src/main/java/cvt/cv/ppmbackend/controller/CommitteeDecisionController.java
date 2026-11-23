@@ -19,16 +19,6 @@ public class CommitteeDecisionController {
         this.committeeDecisionService = committeeDecisionService;
     }
 
-    @PostMapping("/bulk-deliberation")
-    public ResponseEntity<BulkDeliberationResponse> bulkDeliberation(
-            @Valid @RequestBody BulkDeliberationRequest request,
-            @RequestHeader(value = "X-User-Id", required = false) String userId) {
-        
-        String actorId = userId != null && !userId.isBlank() ? userId : "system";
-        BulkDeliberationResponse response = committeeDecisionService.deliberate(request, actorId);
-        
-        return ResponseEntity.status(HttpStatus.OK).body(response);
-    }
 
     @GetMapping("/strategic-plans/{strategicPlanId}/dashboard")
     public DecisionDashboardResponse dashboard(@PathVariable UUID strategicPlanId) {
