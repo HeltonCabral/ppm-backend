@@ -93,6 +93,14 @@ class DemandListFilterJpaTest {
         assertThat(codes(null, null, null, null)).containsExactlyInAnyOrder("DEM-1", "DEM-2", "DEM-3", "DEM-4");
     }
 
+    /* With the direction filter off (the default), the list is not narrowed to the caller's own demands. */
+    @Test
+    void callerDoesNotNarrowTheListWhenTheDirectionFilterIsOff() {
+        assertThat(service.list(0, 50, null, null, null, null, null, null, null, null, null, null,
+                        null, null, null, null, null, null, null, null, null, null, null, null, null, null, "outro.utilizador")
+                .items()).hasSize(4);
+    }
+
     @Test
     void severalTypes() {
         assertThat(codes(List.of("proj_ti", "PROJ_NEG"), null, null, null)).containsExactlyInAnyOrder("DEM-1", "DEM-2", "DEM-4");
@@ -127,7 +135,7 @@ class DemandListFilterJpaTest {
     @Test
     void importCodesFindTheDemandsOfTheSheet() {
         assertThat(service.list(0, 50, null, null, null, null, null, null, null, null, null, null,
-                        null, null, null, null, null, null, null, null, null, null,
+                        null, null, null, null, null, null, null, null, null, null, null,
                         List.of("dmk-2027-001", "DSI-2027-004", "NAO-EXISTE"), null, null, null)
                 .items()).extracting(DemandResponse::code, DemandResponse::importCode)
                 .containsExactlyInAnyOrder(
@@ -152,7 +160,7 @@ class DemandListFilterJpaTest {
     private List<String> codes(List<String> types, List<DemandNature> natures, List<String> directions, List<String> areas,
             List<String> domains) {
         return service.list(0, 50, null, null, null, types, null, null, natures, null, null, null,
-                        null, null, null, null, null, null, null, directions, areas, domains, null, null, null, null)
+                        null, null, null, null, null, null, null, directions, areas, domains, null, null, null, null, null)
                 .items().stream().map(DemandResponse::code).toList();
     }
 

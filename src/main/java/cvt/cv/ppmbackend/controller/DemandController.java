@@ -94,6 +94,12 @@ public class DemandController {
             /* The demand's responsible area (areaCode), several values. */
             @RequestParam(required = false) List<String> areaCode,
             @RequestParam(required = false) List<String> domainCode,
+            /*
+             * Areas taking part in the demand, as "DIR/AREA" (or just "AREA" for any direction):
+             * the responsible direction's intervenient areas and the areas of the participating
+             * directions. The demand's own responsible area does not count (that is areaCode).
+             */
+            @RequestParam(required = false) List<String> participatingArea,
             /* The code a demand had in the Excel import sheet, several values. */
             @RequestParam(required = false) List<String> importCode,
             @RequestParam(required = false) LocalDate createdFrom,
@@ -102,7 +108,8 @@ public class DemandController {
         return demands.list(page, size, sort, search, status, type, origin, urgency, nature,
                 committeeId, scoreMin, scoreMax,
                 strategicPlanId, operationalPlanId, strategicPillarId, strategicObjectiveId, programId,
-                requester, businessArea, directionCode, areaCode, domainCode, importCode, createdFrom, createdTo, actor(user));
+                requester, businessArea, directionCode, areaCode, domainCode, participatingArea, importCode, createdFrom, createdTo,
+                actor(user));
     }
 
     @GetMapping("/strategic-plans/{strategicPlanId}/committee-dashboard")

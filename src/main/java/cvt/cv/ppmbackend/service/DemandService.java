@@ -652,18 +652,20 @@ public class DemandService {
             UUID committeeId, BigDecimal scoreMin, BigDecimal scoreMax, UUID strategicPlanId,
             UUID operationalPlanId, UUID strategicPillarId, UUID strategicObjectiveId, UUID programId,
             String requester, String businessArea, List<String> directionCode, List<String> areaCode, List<String> domainCode,
-            List<String> importCode, LocalDate createdFrom, LocalDate createdTo, String createdBy) {
+            List<String> participatingArea, List<String> importCode, LocalDate createdFrom, LocalDate createdTo,
+            String createdBy) {
         if (scoreMin != null && scoreMax != null && scoreMin.compareTo(scoreMax) > 0) {
             throw new BadRequestException("scoreMin não pode ser maior que scoreMax");
         }
         Sort order = listSort(sort);
         Specification<Demand> spec = (root, query, cb) -> cb.isNull(root.get("deletedAt"));
+        /*
+         * Com o filtro por direção ligado, a regra "Ver" (que já inclui as demandas criadas pelo
+         * utilizador). Desligado, nada é filtrado (ver DemandAccessService): restringir aqui ao
+         * criador escondia todas as demandas de outros utilizadores e as importadas.
+         */
         if (access.filterEnabled()) {
-            // A regra "Ver" já inclui as demandas criadas pelo utilizador.
             spec = spec.and(access.visibleToCurrentUser());
-        } else if (createdBy != null && !createdBy.isBlank()) {
-            final String creator = createdBy.trim();
-            spec = spec.and((r, q, cb) -> cb.equal(r.get("createdBy"), creator));
         }
         if (search != null && !search.isBlank()) {
             String like = "%" + search.toLowerCase(Locale.ROOT) + "%";
@@ -706,6 +708,11 @@ public class DemandService {
         List<String> domains = upperCodes(domainCode);
         if (!domains.isEmpty())
             spec = spec.and((r, q, cb) -> cb.upper(r.get("domain").get("code")).in(domains));
+        List<String> participatingAreas = upperCodes(participatingArea);
+        if (!participatingAreas.isEmpty())
+            spec = spec.and((r, q, cb) -> cb.or(participatingAreas.stream()
+                    .map(key -> involvesParticipatingArea(r, q, cb, key))
+                    .toArray(jakarta.persistence.criteria.Predicate[]::new)));
         if (createdFrom != null) {
             Instant from = createdFrom.atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
             spec = spec.and((r, q, cb) -> cb.greaterThanOrEqualTo(r.get("createdAt"), from));
@@ -752,6 +759,62 @@ public class DemandService {
         Page<Demand> p = demands.findAll(spec, PageRequest.of(page, size, order));
         return new PagedDemandsResponse(p.getContent().stream().map(this::map).toList(), page, size, p.getTotalElements(),
                 p.getTotalPages());
+    }
+
+    /**
+     * The demand has the area taking part, given as "DIR/AREA" (upper case) or just "AREA" for any
+     * direction. An area takes part when it is
+     *  - an INTERVENIENT area of the responsible direction ({@link DemandArea});
+     *  - the area of a participating direction ({@link DemandParticipatingDirection#getAreaCode()});
+     *  - any area of a participating direction ({@link DemandParticipatingDirectionArea}).
+     * The demand's own responsible area is not a participating one: that is the areaCode filter.
+     */
+    static jakarta.persistence.criteria.Predicate involvesParticipatingArea(
+            jakarta.persistence.criteria.Root<Demand> demand, jakarta.persistence.criteria.CriteriaQuery<?> query,
+            jakarta.persistence.criteria.CriteriaBuilder cb, String key) {
+        int slash = key.indexOf('/');
+        String direction = slash >= 0 ? key.substring(0, slash).trim() : null;
+        String area = (slash >= 0 ? key.substring(slash + 1) : key).trim();
+        boolean anyDirection = direction == null || direction.isEmpty();
+
+        /* Intervenient areas of the responsible direction. */
+        var intervenient = query.subquery(UUID.class);
+        var da = intervenient.from(DemandArea.class);
+        List<jakarta.persistence.criteria.Predicate> daWhere = new ArrayList<>(List.of(
+                cb.equal(da.get("demand"), demand),
+                cb.equal(da.get("role"), AreaRole.INTERVENIENT),
+                cb.equal(cb.upper(da.get("areaCode")), area)));
+        if (!anyDirection) daWhere.add(cb.equal(cb.upper(demand.get("directionCode")), direction));
+        intervenient.select(da.get("id")).where(daWhere.toArray(jakarta.persistence.criteria.Predicate[]::new));
+
+        /* The area a participating direction takes part with. */
+        var participantArea = query.subquery(UUID.class);
+        var pd = participantArea.from(DemandParticipatingDirection.class);
+        List<jakarta.persistence.criteria.Predicate> pdWhere = new ArrayList<>(List.of(
+                cb.equal(pd.get("demand"), demand),
+                cb.equal(cb.upper(pd.get("areaCode")), area)));
+        if (!anyDirection) pdWhere.add(cb.equal(cb.upper(pd.get("directionCode")), direction));
+        participantArea.select(pd.get("id")).where(pdWhere.toArray(jakarta.persistence.criteria.Predicate[]::new));
+
+        /* Every area listed under a participating direction. */
+        var participantAreas = query.subquery(UUID.class);
+        var pda = participantAreas.from(DemandParticipatingDirectionArea.class);
+        var owner = pda.join("participatingDirection");
+        List<jakarta.persistence.criteria.Predicate> pdaWhere = new ArrayList<>(List.of(
+                cb.equal(owner.get("demand"), demand),
+                cb.equal(cb.upper(pda.get("areaCode")), area)));
+        if (!anyDirection) pdaWhere.add(cb.equal(cb.upper(owner.get("directionCode")), direction));
+        participantAreas.select(pda.get("id")).where(pdaWhere.toArray(jakarta.persistence.criteria.Predicate[]::new));
+
+        /* The responsible area itself is excluded (the responsible direction may also be listed as a participant). */
+        var responsibleArea = cb.equal(cb.upper(demand.get("areaCode")), area);
+        var isResponsible = anyDirection
+                ? responsibleArea
+                : cb.and(responsibleArea, cb.equal(cb.upper(demand.get("directionCode")), direction));
+
+        return cb.and(
+                cb.or(cb.exists(intervenient), cb.exists(participantArea), cb.exists(participantAreas)),
+                cb.or(cb.isNull(demand.get("areaCode")), cb.not(isResponsible)));
     }
 
     @Transactional
