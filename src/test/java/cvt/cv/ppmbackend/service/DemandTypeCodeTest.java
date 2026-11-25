@@ -202,6 +202,6 @@ class DemandTypeCodeTest {
                 "Problema", "Resultado esperado", null,
                 "HIGH", null, null, null, null, null, null, null,
                 null, null, null, null,
-                null, null, null);
+                null, null, null, null, null, null, null);
     }
 }

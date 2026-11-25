@@ -118,6 +118,8 @@ public class DemandService {
         demand.setCreatedBy(actor(actorId));
         demand.setUpdatedBy(actor(actorId));
         apply(req, demand);
+        demand.setPlannedStartDate(demand.getRequestedStartDate());
+        List<ParticipatingDirectionCreate> directions = withoutExternal(demand, req.participatingDirections());
         demand.setTypeFields(TypeFieldRules.normalizeValues(demand.getType(), req.typeFields()));
         Demand saved = demands.save(demand);
         DemandPlanningCycle cycle = planningCycleService.createInitialCycle(saved, req.strategicPillarId(),
@@ -126,8 +128,8 @@ public class DemandService {
             req.attachments().forEach(a -> addAttachment(saved, new AttachmentCreate(a.name(), a.url(), a.contentType()),
                     actorId));
         }
-        if (req.participatingDirections() != null && !req.participatingDirections().isEmpty()) {
-            req.participatingDirections().forEach(pd -> {
+        if (directions != null && !directions.isEmpty()) {
+            directions.forEach(pd -> {
                 DemandParticipatingDirection direction = new DemandParticipatingDirection();
                 direction.setDemand(saved);
                 direction.setDirectionName(pd.directionName());
@@ -160,7 +162,7 @@ public class DemandService {
     @Transactional
     public DemandResponse duplicate(UUID id, Duplicate req, String actorId) {
         Demand source = entity(id);
-        Duplicate options = req != null ? req : new Duplicate(null, null, null, null, null, null);
+        Duplicate options = req != null ? req : new Duplicate(null, null, null, null, null, null, null);
 
         DemandResponse createdResponse = create(toDuplicateCreate(source, options), actorId);
         Demand copy = entity(createdResponse.id());
@@ -225,6 +227,11 @@ public class DemandService {
         Set<UUID> supplierIds = new HashSet<>();
         source.getSuppliers().forEach(supplier -> supplierIds.add(supplier.getId()));
 
+        /* Sem personalização a cópia segue o Tipo (que já é copiado), por isso só há algo a copiar quando existe. */
+        com.fasterxml.jackson.databind.JsonNode customPlanningCopy = copyEnabled(options.copyCustomPlanning())
+                ? customPlanning.copyOf(source)
+                : null;
+
         return new Create(
                 duplicateTitle(options.title(), source.getTitle()),
                 strategicPillarId,
@@ -265,8 +272,12 @@ public class DemandService {
                 profileInputs,
                 criterionInputs,
                 copyDemandAreas(source.getId()),
-                null,
-                TypeFieldRules.toNode(source.getTypeFields()));
+                customPlanningCopy,
+                TypeFieldRules.toNode(source.getTypeFields()),
+                source.getExternalParticipation(),
+                source.getExternalParticipationNotes(),
+                source.getRequestedStartDate(),
+                null);
     }
 
     private boolean copyEnabled(Boolean flag) {
@@ -287,20 +298,22 @@ public class DemandService {
         ScoreRelevantState previousScoreInputs = scoreRelevantState(demand);
         ComplexityRelevantState previousComplexityInputs = complexityRelevantState(demand);
         LocalDate previousDesiredDate = demand.getDesiredDate();
+        LocalDate previousRequestedStart = demand.getRequestedStartDate();
         UUID previousTypeId = demand.getType() == null ? null : demand.getType().getId();
         apply(toCreate(req), demand);
+        List<ParticipatingDirectionCreate> directions = withoutExternal(demand, req.participatingDirections());
         applyTypeFields(demand, previousTypeId, req.typeFields());
         handleScoreRelevantChanges(demand, previousScoreInputs);
         invalidateComplexityIfNeeded(demand, previousComplexityInputs,
                 req.participatingDirections() != null || req.profileRequirements() != null);
-        refreshPlannedStartDateIfNeeded(demand, previousDesiredDate);
+        refreshPlannedStartDateIfNeeded(demand, previousDesiredDate, previousRequestedStart);
         demand.setUpdatedBy(actor(actorId));
         Demand saved = demands.save(demand);
 
         if (req.participatingDirections() != null) {
             participatingDirectionAreas.deleteByParticipatingDirection_Demand_Id(id);
             participatingDirections.deleteByDemandId(id);
-            req.participatingDirections().forEach(pd -> {
+            directions.forEach(pd -> {
                 DemandParticipatingDirection direction = new DemandParticipatingDirection();
                 direction.setDemand(saved);
                 direction.setDirectionName(pd.directionName());
@@ -333,26 +346,29 @@ public class DemandService {
         ScoreRelevantState previousScoreInputs = scoreRelevantState(d);
         ComplexityRelevantState previousComplexityInputs = complexityRelevantState(d);
         LocalDate previousDesiredDate = d.getDesiredDate();
+        LocalDate previousRequestedStart = d.getRequestedStartDate();
         UUID previousTypeId = d.getType() == null ? null : d.getType().getId();
         Create merged = mergePatch(d, req);
         apply(merged, d);
+        List<ParticipatingDirectionCreate> directions = withoutExternal(d, req.participatingDirections());
         /* A null in the PATCH means "leave it"; these are emptied only when named in `clear`. */
         if (req.clear() != null) {
             if (req.clear().contains("estimatedBudget")) d.setEstimatedBudget(null);
             if (req.clear().contains("budgetLineId")) d.setBudgetLine(null);
+            if (req.clear().contains("requestedStartDate")) d.setRequestedStartDate(null);
         }
         applyTypeFields(d, previousTypeId, req.typeFields());
         handleScoreRelevantChanges(d, previousScoreInputs);
         invalidateComplexityIfNeeded(d, previousComplexityInputs,
                 req.participatingDirections() != null || req.profileRequirements() != null);
-        refreshPlannedStartDateIfNeeded(d, previousDesiredDate);
+        refreshPlannedStartDateIfNeeded(d, previousDesiredDate, previousRequestedStart);
         d.setUpdatedBy(actor(actorId));
         Demand saved = demands.save(d);
 
         if (req.participatingDirections() != null) {
             participatingDirectionAreas.deleteByParticipatingDirection_Demand_Id(id);
             participatingDirections.deleteByDemandId(id);
-            req.participatingDirections().forEach(pd -> {
+            directions.forEach(pd -> {
                 DemandParticipatingDirection direction = new DemandParticipatingDirection();
                 direction.setDemand(saved);
                 direction.setDirectionName(pd.directionName());
@@ -654,6 +670,25 @@ public class DemandService {
             String requester, String businessArea, List<String> directionCode, List<String> areaCode, List<String> domainCode,
             List<String> participatingArea, List<String> importCode, LocalDate createdFrom, LocalDate createdTo,
             String createdBy) {
+        return list(page, size, sort, search, status, type, origin, urgency, nature, committeeId, scoreMin, scoreMax,
+                strategicPlanId, operationalPlanId, strategicPillarId, strategicObjectiveId, programId, requester,
+                businessArea, directionCode, null, null, areaCode, domainCode, participatingArea, importCode,
+                createdFrom, createdTo, createdBy);
+    }
+
+    /**
+     * directionCode: a direção é responsável ou participa; responsibleDirectionCode: só a responsável;
+     * participatingDirectionCode: só as participantes (Implementação ou Interveniente).
+     */
+    @Transactional
+    public PagedDemandsResponse list(int page, int size, String sort, String search, List<DemandPlanningStatus> status,
+            List<String> type, String origin, String urgency, List<DemandNature> nature,
+            UUID committeeId, BigDecimal scoreMin, BigDecimal scoreMax, UUID strategicPlanId,
+            UUID operationalPlanId, UUID strategicPillarId, UUID strategicObjectiveId, UUID programId,
+            String requester, String businessArea, List<String> directionCode, List<String> responsibleDirectionCode,
+            List<String> participatingDirectionCode, List<String> areaCode, List<String> domainCode,
+            List<String> participatingArea, List<String> importCode, LocalDate createdFrom, LocalDate createdTo,
+            String createdBy) {
         if (scoreMin != null && scoreMax != null && scoreMin.compareTo(scoreMax) > 0) {
             throw new BadRequestException("scoreMin não pode ser maior que scoreMax");
         }
@@ -679,7 +714,8 @@ public class DemandService {
                     cb.like(cb.lower(root.get("areaCode")), like),
                     cb.like(cb.lower(root.get("directionCode")), like),
                     cb.like(cb.lower(root.get("easyVistaRef")), like),
-                    cb.like(cb.lower(root.get("importCode")), like)));
+                    cb.like(cb.lower(root.get("importCode")), like),
+                    cb.like(cb.lower(root.get("carriedOverFrom")), like)));
         }
         List<String> types = upperCodes(type);
         if (!types.isEmpty())
@@ -699,6 +735,12 @@ public class DemandService {
         /* The direction is responsible, or takes part as Implementação or Interveniente. */
         if (!directions.isEmpty())
             spec = spec.and((r, q, cb) -> DemandAccessService.involvesDirections(r, q, cb, directions));
+        List<String> responsibleDirections = upperCodes(responsibleDirectionCode);
+        if (!responsibleDirections.isEmpty())
+            spec = spec.and((r, q, cb) -> cb.upper(r.get("directionCode")).in(responsibleDirections));
+        List<String> participatingDirections = upperCodes(participatingDirectionCode);
+        if (!participatingDirections.isEmpty())
+            spec = spec.and((r, q, cb) -> DemandAccessService.participatesIn(r, q, cb, participatingDirections));
         List<String> importCodes = upperCodes(importCode);
         if (!importCodes.isEmpty())
             spec = spec.and((r, q, cb) -> cb.upper(r.get("importCode")).in(importCodes));
@@ -959,6 +1001,15 @@ public class DemandService {
         d.setDesiredDate(req.desiredDate());
         d.setMandatoryDeadline(req.mandatoryDeadline());
         d.setNotes(req.notes());
+        if (req.requestedStartDate() != null && req.desiredDate() != null && req.desiredDate().isBefore(req.requestedStartDate())) {
+            throw new BadRequestException("A data de início prevista não pode ser posterior à data objetivo.");
+        }
+        d.setRequestedStartDate(req.requestedStartDate());
+        d.setCarriedOverFrom(hasText(req.carriedOverFrom()) ? req.carriedOverFrom().trim() : null);
+        if (req.externalParticipation() != null) d.setExternalParticipation(req.externalParticipation());
+        if (req.externalParticipationNotes() != null) {
+            d.setExternalParticipationNotes(hasText(req.externalParticipationNotes()) ? req.externalParticipationNotes().trim() : null);
+        }
         d.setRisksIdentified(req.risksIdentified());
         d.setDependenciesIdentified(req.dependenciesIdentified());
         if (d.getId() == null) {
@@ -1042,7 +1093,11 @@ public class DemandService {
                 d.getTypeFields() == null ? Map.of() : d.getTypeFields(),
                 access.permissionsFor(d,
                         participatingDirs.stream().map(ParticipatingDirectionResponse::directionCode).toList(),
-                        currentPlanningCycle));
+                        currentPlanningCycle),
+                Boolean.TRUE.equals(d.getExternalParticipation()),
+                d.getExternalParticipationNotes(),
+                d.getRequestedStartDate(),
+                d.getCarriedOverFrom());
     }
 
     private SupplierSummary mapSupplier(Supplier supplier) {
@@ -1138,6 +1193,38 @@ public class DemandService {
         Sort.Direction direction = parts.length > 1 && parts[1].trim().equalsIgnoreCase("asc")
                 ? Sort.Direction.ASC : Sort.Direction.DESC;
         return Sort.by(direction, field).and(Sort.by(Sort.Direction.ASC, "id"));
+    }
+
+    /** Código com que a folha de importação indica uma entidade externa nas direções participantes. */
+    static final String EXTERNAL_DIRECTION_CODE = "EXT";
+
+    static boolean isExternalDirection(ParticipatingDirectionCreate pd) {
+        return pd != null && pd.directionCode() != null
+                && EXTERNAL_DIRECTION_CODE.equalsIgnoreCase(pd.directionCode().trim());
+    }
+
+    /**
+     * As direções participantes sem as entidades externas ("EXT"): não são direções da CVT e
+     * baralhavam a contagem de direções, a complexidade e o acesso por direção. Em vez disso marcam
+     * a demanda como envolvendo uma entidade externa, guardando as observações da linha se a
+     * demanda ainda não tiver nenhuma. {@code null} continua {@code null} (não mexer).
+     */
+    List<ParticipatingDirectionCreate> withoutExternal(Demand demand, List<ParticipatingDirectionCreate> directions) {
+        if (directions == null) {
+            return null;
+        }
+        List<ParticipatingDirectionCreate> external = directions.stream().filter(DemandService::isExternalDirection).toList();
+        if (external.isEmpty()) {
+            return directions;
+        }
+        demand.setExternalParticipation(true);
+        if (!hasText(demand.getExternalParticipationNotes())) {
+            String notes = external.stream().map(ParticipatingDirectionCreate::observations)
+                    .filter(DemandService::hasText).map(String::trim).distinct()
+                    .collect(java.util.stream.Collectors.joining("\n"));
+            if (!notes.isEmpty()) demand.setExternalParticipationNotes(notes);
+        }
+        return directions.stream().filter(pd -> !isExternalDirection(pd)).toList();
     }
 
     private static boolean hasText(String value) {
@@ -1355,14 +1442,20 @@ public class DemandService {
         demand.setComplexityScore(null);
         demand.setComplexity(null);
         demand.setEstimatedDurationMonths(null);
-        demand.setPlannedStartDate(null);
+        /* Without a duration only the requested start (if any) is still known. */
+        demand.setPlannedStartDate(demand.getRequestedStartDate());
     }
 
-    private void refreshPlannedStartDateIfNeeded(Demand demand, LocalDate previousDesiredDate) {
-        if (!Objects.equals(previousDesiredDate, demand.getDesiredDate())
-                && demand.getEstimatedDurationMonths() != null) {
-            demand.setPlannedStartDate(demand.getDesiredDate() == null ? null
-                    : demand.getDesiredDate().minusMonths(demand.getEstimatedDurationMonths()));
+    /**
+     * O início previsto acompanha a data indicada, ou a data objetivo − duração. Sem data indicada
+     * e sem duração (complexidade por calcular) fica como estava.
+     */
+    private void refreshPlannedStartDateIfNeeded(Demand demand, LocalDate previousDesiredDate,
+            LocalDate previousRequestedStart) {
+        boolean requestedChanged = !Objects.equals(previousRequestedStart, demand.getRequestedStartDate());
+        boolean desiredChanged = !Objects.equals(previousDesiredDate, demand.getDesiredDate());
+        if (requestedChanged || (desiredChanged && demand.getEstimatedDurationMonths() != null)) {
+            demand.setPlannedStartDate(demand.resolvePlannedStartDate(demand.getEstimatedDurationMonths()));
         }
     }
 
@@ -1449,7 +1542,11 @@ public class DemandService {
                 p.successCriteria(),
                 p.areas(),
                 null,
-                null);
+                null,
+                p.externalParticipation(),
+                p.externalParticipationNotes(),
+                p.requestedStartDate() != null ? p.requestedStartDate() : d.getRequestedStartDate(),
+                p.carriedOverFrom() != null ? p.carriedOverFrom() : d.getCarriedOverFrom());
     }
 
     private Create toCreate(Update u) {
@@ -1458,7 +1555,8 @@ public class DemandService {
                 u.problemStatement(), u.desiredOutcome(), u.proposedResponse(), u.urgency(), u.estimatedBudget(),
                 u.desiredDate(), u.mandatoryDeadline(), u.notes(), u.risksIdentified(),
                 u.dependenciesIdentified(), u.dependenciesCount(),
-                null, u.participatingDirections(), u.profileRequirements(), u.successCriteria(), u.areas(), null, null);
+                null, u.participatingDirections(), u.profileRequirements(), u.successCriteria(), u.areas(), null, null,
+                u.externalParticipation(), u.externalParticipationNotes(), u.requestedStartDate(), u.carriedOverFrom());
     }
 
     private void validateDates(LocalDate start, LocalDate end) {

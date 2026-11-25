@@ -66,6 +66,7 @@ class DemandListFilterJpaTest {
         Demand dem4 = demand("DEM-4", ti, DemandNature.CONTRACTUAL, "dsi", "ISI", network);
         dem1.setImportCode("DMK-2027-001");
         dem4.setImportCode("dsi-2027-004");
+        dem2.setCarriedOverFrom("Transitada de 2026 (DEM-000045)");
         /* DCM only takes part; DSI is also a participant of a demand it is responsible for. */
         participant(dem2, "DCM", DirectionParticipationType.INTERVENIENT);
         participant(dem3, "dcm", DirectionParticipationType.IMPLEMANTATION);
@@ -99,6 +100,14 @@ class DemandListFilterJpaTest {
         assertThat(service.list(0, 50, null, null, null, null, null, null, null, null, null, null,
                         null, null, null, null, null, null, null, null, null, null, null, null, null, null, "outro.utilizador")
                 .items()).hasSize(4);
+    }
+
+    /* A demand carried over from a previous year is found by what it says it came from. */
+    @Test
+    void searchFindsTheCarriedOverDemand() {
+        assertThat(service.list(0, 50, null, "dem-000045", null, null, null, null, null, null, null, null,
+                        null, null, null, null, null, null, null, null, null, null, null, null, null, null, null)
+                .items()).extracting(DemandResponse::code).containsExactly("DEM-2");
     }
 
     @Test

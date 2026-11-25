@@ -166,6 +166,21 @@ public class Demand extends BaseEntity {
     @Column(name = "planned_start_date")
     private LocalDate plannedStartDate;
 
+    /**
+     * Data de início indicada para a demanda (Ex.: "Data início prevista" na folha de importação).
+     * Quando existe, é ela o início previsto — e a janela da capacidade — em vez de
+     * data objetivo − duração estimada pela complexidade.
+     */
+    @Column(name = "requested_start_date")
+    private LocalDate requestedStartDate;
+
+    /**
+     * De onde a demanda transitou, quando vem de um ano/plano anterior (texto livre: Ex.: "2026"
+     * ou "DEM-000045 / 2026"). Vazio numa demanda nova.
+     */
+    @Column(name = "carried_over_from", length = 120)
+    private String carriedOverFrom;
+
     @OneToMany(mappedBy = "demand", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     private List<DemandPlanningCycle> planningCycles = new ArrayList<>();
@@ -191,6 +206,18 @@ public class Demand extends BaseEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "type_fields")
     private Map<String, Object> typeFields = new LinkedHashMap<>();
+
+    /**
+     * A demanda envolve uma entidade externa (Ex.: um fornecedor ainda por escolher). Não é uma
+     * direção da CVT, por isso não fica nas direções participantes. O fornecedor, quando escolhido,
+     * associa-se em {@code suppliers}.
+     */
+    @Column(name = "external_participation")
+    private Boolean externalParticipation;
+
+    /** O que a entidade externa faz na demanda, quando indicado. */
+    @Column(name = "external_participation_notes", columnDefinition = "TEXT")
+    private String externalParticipationNotes;
 
     @OneToMany(mappedBy = "demand", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
@@ -233,5 +260,22 @@ public class Demand extends BaseEntity {
     @JsonProperty("budgetLineId")
     public UUID getBudgetLineId() {
         return budgetLine != null ? budgetLine.getId() : null;
+    }
+
+    /** O início previsto: o indicado; senão data objetivo − duração estimada (nulo sem duração ou data). */
+    public LocalDate resolvePlannedStartDate(Integer estimatedDurationMonths) {
+        if (requestedStartDate != null) {
+            return requestedStartDate;
+        }
+        return desiredDate == null || estimatedDurationMonths == null ? null : desiredDate.minusMonths(estimatedDurationMonths);
+    }
+
+    /* Nenhum recálculo (complexidade, dependências, data objetivo) se sobrepõe à data indicada. */
+    @PrePersist
+    @PreUpdate
+    void keepRequestedStartDate() {
+        if (requestedStartDate != null) {
+            plannedStartDate = requestedStartDate;
+        }
     }
 }

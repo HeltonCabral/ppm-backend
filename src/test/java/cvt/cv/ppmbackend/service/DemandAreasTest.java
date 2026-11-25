@@ -196,6 +196,32 @@ class DemandAreasTest {
                 .containsExactly("PPV", "CGC");
     }
 
+    /* "EXT – Externo" in the import sheet is an external entity, not a CVT direction. */
+    @Test
+    void externalDirectionIsNotSavedAndMarksTheDemand() {
+        Create req = baseCreate(null, List.of(
+                new ParticipatingDirectionCreate("Wholesale", "DWS", "Técnico e Desenvolvimento de Negócio", "TDN",
+                        DirectionParticipationType.IMPLEMANTATION, null, null),
+                new ParticipatingDirectionCreate("Externo", "ext", "Entidade externa", "N/A",
+                        DirectionParticipationType.INTERVENIENT, "Fornecedor do cabo submarino", null)));
+
+        DemandResponse response = service.create(req, "helton");
+
+        assertThat(savedDirections).extracting(DemandParticipatingDirection::getDirectionCode).containsExactly("DWS");
+        assertThat(response.externalParticipation()).isTrue();
+        assertThat(response.externalParticipationNotes()).isEqualTo("Fornecedor do cabo submarino");
+    }
+
+    @Test
+    void withoutExternalDirectionTheDemandIsNotMarked() {
+        DemandResponse response = service.create(baseCreate(null, List.of(
+                new ParticipatingDirectionCreate("Wholesale", "DWS", null, null,
+                        DirectionParticipationType.IMPLEMANTATION, null, null))), "helton");
+
+        assertThat(response.externalParticipation()).isFalse();
+        assertThat(savedDirections).hasSize(1);
+    }
+
     @Test
     void rejectsTwoResponsibleInSameDirection() {
         Create req = baseCreate(List.of(
@@ -262,6 +288,6 @@ class DemandAreasTest {
                 "Problema", "Resultado esperado", null,
                 "HIGH", null, null, null, null, null, null, null,
                 null, participatingDirections, null, null,
-                areas, null, null);
+                areas, null, null, null, null, null, null);
     }
 }

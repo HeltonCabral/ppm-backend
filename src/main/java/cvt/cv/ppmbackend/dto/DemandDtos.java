@@ -104,7 +104,15 @@ public final class DemandDtos {
                         @Valid List<DirectionAreaInput> areas,
                         JsonNode customPlanning,
                         /** Presente: substitui o objeto inteiro; ausente: mantém-se (ou limpa-se se o Tipo mudar). */
-                        JsonNode typeFields) {
+                        JsonNode typeFields,
+                        /** Envolve uma entidade externa (fornecedor por definir). Ausente: mantém-se. */
+                        Boolean externalParticipation,
+                        /** O que a entidade externa faz. Ausente: mantém-se; vazio: limpa. */
+                        @Size(max = 4000) String externalParticipationNotes,
+                        /** Data de início indicada: passa a ser o início previsto. Ausente no PATCH: mantém-se. */
+                        LocalDate requestedStartDate,
+                        /** De onde transitou (ano/plano anterior). Ausente no PATCH: mantém-se; vazio: limpa. */
+                        @Size(max = 120) String carriedOverFrom) {
         }
 
         /**
@@ -118,7 +126,9 @@ public final class DemandDtos {
                         Boolean copyParticipatingDirections,
                         Boolean copyProfileRequirements,
                         Boolean copySuccessCriteria,
-                        Boolean copyStrategicFraming) {
+                        Boolean copyStrategicFraming,
+                        /* Planeamento personalizado: fases, recursos (perfis) e respetivas alocações. */
+                        Boolean copyCustomPlanning) {
         }
 
         public record Update(
@@ -164,7 +174,15 @@ public final class DemandDtos {
                         @Valid List<DirectionAreaInput> areas,
                         JsonNode customPlanning,
                         /** Presente: substitui o objeto inteiro; ausente: mantém-se (ou limpa-se se o Tipo mudar). */
-                        JsonNode typeFields) {
+                        JsonNode typeFields,
+                        /** Envolve uma entidade externa (fornecedor por definir). Ausente: mantém-se. */
+                        Boolean externalParticipation,
+                        /** O que a entidade externa faz. Ausente: mantém-se; vazio: limpa. */
+                        @Size(max = 4000) String externalParticipationNotes,
+                        /** Data de início indicada: passa a ser o início previsto. Ausente no PATCH: mantém-se. */
+                        LocalDate requestedStartDate,
+                        /** De onde transitou (ano/plano anterior). Ausente no PATCH: mantém-se; vazio: limpa. */
+                        @Size(max = 120) String carriedOverFrom) {
         }
 
         public record Patch(
@@ -211,8 +229,16 @@ public final class DemandDtos {
                         JsonNode customPlanning,
                         /** Presente: substitui o objeto inteiro; ausente: mantém-se (ou limpa-se se o Tipo mudar). */
                         JsonNode typeFields,
-                        /** Campos a limpar (null não chega: o PATCH ignora nulls). Aceites: estimatedBudget, budgetLineId. */
-                        List<String> clear) {
+                        /** Campos a limpar (null não chega: o PATCH ignora nulls). Aceites: estimatedBudget, budgetLineId, requestedStartDate. */
+                        List<String> clear,
+                        /** Envolve uma entidade externa (fornecedor por definir). Ausente: mantém-se. */
+                        Boolean externalParticipation,
+                        /** O que a entidade externa faz. Ausente: mantém-se; vazio: limpa. */
+                        @Size(max = 4000) String externalParticipationNotes,
+                        /** Data de início indicada: passa a ser o início previsto. Ausente no PATCH: mantém-se. */
+                        LocalDate requestedStartDate,
+                        /** De onde transitou (ano/plano anterior). Ausente no PATCH: mantém-se; vazio: limpa. */
+                        @Size(max = 120) String carriedOverFrom) {
         }
 
         public record AssignCommitteeRequest(@NotNull UUID committeeId) {
@@ -377,7 +403,11 @@ public final class DemandDtos {
                         List<DirectionAreaResponse> areas,
                         CustomPlanningResponse customPlanning,
                         Map<String, Object> typeFields,
-                        DemandPermissions permissions) {
+                        DemandPermissions permissions,
+                        boolean externalParticipation,
+                        String externalParticipationNotes,
+                        LocalDate requestedStartDate,
+                        String carriedOverFrom) {
         }
 
         /** O que o utilizador atual pode fazer com a demanda (regra de acesso por direção). */

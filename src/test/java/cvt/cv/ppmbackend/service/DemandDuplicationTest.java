@@ -197,7 +197,7 @@ class DemandDuplicationTest {
 
     @Test
     void respeitaTituloPersonalizadoEFlagsDesligadas() {
-        Duplicate options = new Duplicate("Fase 2 do portal do cliente", false, false, false, false, false);
+        Duplicate options = new Duplicate("Fase 2 do portal do cliente", false, false, false, false, false, false);
 
         service.duplicate(sourceId, options, "helton");
 
@@ -207,6 +207,19 @@ class DemandDuplicationTest {
         verify(profileRequirements).sync(eq(savedCopy), eq(null));
         verify(successCriteria).sync(eq(savedCopy), eq(null));
         verify(planningCycleService).createInitialCycle(eq(savedCopy), eq(null), eq(null), eq(null), eq("helton"));
+        verify(customPlanning, never()).copyOf(any(Demand.class));
+        verify(customPlanning).apply(eq(savedCopy), eq(null), anyString());
+    }
+
+    @Test
+    void copiaORecursosEAlocacoesDoPlaneamentoPersonalizado() {
+        com.fasterxml.jackson.databind.JsonNode planning = new com.fasterxml.jackson.databind.ObjectMapper()
+                .createObjectNode().put("baseTypeId", UUID.randomUUID().toString());
+        when(customPlanning.copyOf(source)).thenReturn(planning);
+
+        service.duplicate(sourceId, new Duplicate(null, false, false, false, false, false, true), "helton");
+
+        verify(customPlanning).apply(eq(savedCopy), eq(planning), anyString());
     }
 
     private Demand sourceDemand() {

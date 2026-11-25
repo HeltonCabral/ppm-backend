@@ -167,8 +167,8 @@ public class DemandComplexityService {
         demand.setComplexityScore(complexityScore);
         demand.setComplexity(level.getLevel());
         demand.setEstimatedDurationMonths(level.getEstimatedDurationMonths());
-        demand.setPlannedStartDate(demand.getDesiredDate() == null ? null
-                : demand.getDesiredDate().minusMonths(level.getEstimatedDurationMonths()));
+        /* A requested start (Ex.: from the import sheet) wins over desired date − estimated duration. */
+        demand.setPlannedStartDate(demand.resolvePlannedStartDate(level.getEstimatedDurationMonths()));
         demand.setUpdatedBy(actor == null || actor.isBlank() ? "system" : actor.trim());
         Demand saved = demands.save(demand);
         /*

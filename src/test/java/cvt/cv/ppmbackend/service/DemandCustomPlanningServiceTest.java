@@ -79,6 +79,44 @@ class DemandCustomPlanningServiceTest {
     }
 
     @Test
+    void copyKeepsPhasesAndAllocationsButDropsInactiveProfiles() {
+        UUID retiredId = UUID.randomUUID();
+        Profile backend = profile("Backend Developer", "DSI", "Direção de Sistemas", true);
+        Profile retired = profile("Analista antigo", "DSI", "Direção de Sistemas", true);
+        when(profiles.findById(profileId)).thenReturn(Optional.of(backend));
+        when(profiles.findById(retiredId)).thenReturn(Optional.of(retired));
+
+        Demand source = new Demand();
+        service.apply(source, planning(
+                phase("Análise", 1, 30, resource(profileId, 10)),
+                phase("Desenvolvimento", 2, 70, resource(profileId, 150), resource(retiredId, 50))), "tester");
+        retired.setActive(false);
+
+        JsonNode copy = service.copyOf(source);
+
+        assertThat(copy.get("baseTypeId").asText()).isEqualTo(baseTypeId.toString());
+        assertThat(copy.get("phases")).hasSize(2);
+        assertThat(copy.get("phases").get(0).get("resources").get(0).get("allocationPercentage").decimalValue())
+                .isEqualByComparingTo("10");
+        JsonNode development = copy.get("phases").get(1);
+        assertThat(development.get("durationWeightPercentage").decimalValue()).isEqualByComparingTo("70");
+        assertThat(development.get("resources")).hasSize(1);
+        assertThat(development.get("resources").get(0).get("profileId").asText()).isEqualTo(profileId.toString());
+        assertThat(development.get("resources").get(0).get("allocationPercentage").decimalValue()).isEqualByComparingTo("150");
+
+        /* The copy is accepted as-is by apply (same shape as the request). */
+        retired.setActive(true);
+        Demand target = new Demand();
+        service.apply(target, copy, "tester");
+        assertThat(target.getCustomPhases()).hasSize(2);
+    }
+
+    @Test
+    void copyOfADemandFollowingTheTypeIsNull() {
+        assertThat(service.copyOf(new Demand())).isNull();
+    }
+
+    @Test
     void activeWeightsNotHundredAreRejected() {
         Demand demand = new Demand();
         JsonNode node = planning(

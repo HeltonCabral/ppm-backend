@@ -122,7 +122,7 @@ public class DemandDependencyService {
         demand.setComplexityScore(null);
         demand.setComplexity(null);
         demand.setEstimatedDurationMonths(null);
-        demand.setPlannedStartDate(null);
+        demand.setPlannedStartDate(demand.getRequestedStartDate());
         demand.setUpdatedBy(actor(actor));
         demands.save(demand);
     }

@@ -87,6 +87,29 @@ public class DemandCustomPlanningService {
         return demand != null && demand.getCustomPhases() != null && !demand.getCustomPhases().isEmpty();
     }
 
+    /**
+     * O planeamento personalizado da Demanda no formato do pedido, para o aplicar a uma cópia;
+     * {@code null} quando ela segue o Tipo. Recursos de perfis inativos ficam de fora, porque não
+     * podem ser associados a novas Demandas (como nos perfis necessários).
+     */
+    @Transactional(readOnly = true)
+    public JsonNode copyOf(Demand source) {
+        CustomPlanningResponse planning = buildResponse(source);
+        if (planning == null) {
+            return null;
+        }
+        List<CustomPhaseInput> phases = planning.phases().stream()
+                .map(phase -> new CustomPhaseInput(null, phase.sourcePhaseId(), phase.name(), phase.description(),
+                        phase.sequence(), phase.durationWeightPercentage(), phase.active(),
+                        phase.resources().stream()
+                                .filter(CustomResourceResponse::profileActive)
+                                .map(resource -> new CustomResourceInput(null, resource.profileId(),
+                                        resource.allocationPercentage()))
+                                .toList()))
+                .toList();
+        return objectMapper.valueToTree(new CustomPlanningInput(planning.baseTypeId(), phases));
+    }
+
     @Transactional(readOnly = true)
     public CustomPlanningResponse buildResponse(Demand demand) {
         if (!hasCustomPlanning(demand)) {

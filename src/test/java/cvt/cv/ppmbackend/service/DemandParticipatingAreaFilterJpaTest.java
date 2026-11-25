@@ -110,6 +110,34 @@ class DemandParticipatingAreaFilterJpaTest {
                 .items()).extracting(DemandResponse::code).containsExactly("DEM-B");
     }
 
+    @Test
+    void responsibleDirectionIgnoresParticipants() {
+        assertThat(directionCodes(null, List.of("dsi"), null)).containsExactlyInAnyOrder("DEM-A", "DEM-D");
+    }
+
+    @Test
+    void participatingDirectionIgnoresTheResponsibleOne() {
+        assertThat(directionCodes(null, null, List.of("DSI"))).containsExactlyInAnyOrder("DEM-C", "DEM-D");
+        assertThat(directionCodes(null, null, List.of("DCM", "dei"))).containsExactly("DEM-B");
+    }
+
+    @Test
+    void responsibleAndParticipatingDirectionsCombineWithAnd() {
+        assertThat(directionCodes(null, List.of("DSI"), List.of("DSI"))).containsExactly("DEM-D");
+    }
+
+    @Test
+    void directionCodeStillMatchesResponsibleOrParticipating() {
+        assertThat(directionCodes(List.of("DSI"), null, null)).containsExactlyInAnyOrder("DEM-A", "DEM-C", "DEM-D");
+    }
+
+    private List<String> directionCodes(List<String> any, List<String> responsible, List<String> participating) {
+        return service.list(0, 50, null, null, null, null, null, null, null, null, null, null,
+                        null, null, null, null, null, null, null, any, responsible, participating, null, null,
+                        null, null, null, null, null)
+                .items().stream().map(DemandResponse::code).toList();
+    }
+
     private List<String> codes(String... areas) {
         return service.list(0, 50, null, null, null, null, null, null, null, null, null, null,
                         null, null, null, null, null, null, null, null, null, null, List.of(areas), null, null, null, null)

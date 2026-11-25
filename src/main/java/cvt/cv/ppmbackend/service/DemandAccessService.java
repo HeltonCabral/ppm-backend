@@ -92,12 +92,21 @@ public class DemandAccessService {
      */
     public static Predicate involvesDirections(Path<Demand> demand, CriteriaQuery<?> query, CriteriaBuilder cb,
             Collection<String> codes) {
+        return cb.or(cb.upper(demand.get("directionCode")).in(codes), participatesIn(demand, query, cb, codes));
+    }
+
+    /**
+     * Uma destas direções (códigos em maiúsculas) participa na demanda, como Implementação ou
+     * Interveniente. A direção responsável só conta se também estiver listada como participante.
+     */
+    public static Predicate participatesIn(Path<Demand> demand, CriteriaQuery<?> query, CriteriaBuilder cb,
+            Collection<String> codes) {
         Subquery<UUID> participating = query.subquery(UUID.class);
         Root<DemandParticipatingDirection> pd = participating.from(DemandParticipatingDirection.class);
         participating.select(pd.get("id")).where(
                 cb.equal(pd.get("demand"), demand),
                 cb.upper(pd.get("directionCode")).in(codes));
-        return cb.or(cb.upper(demand.get("directionCode")).in(codes), cb.exists(participating));
+        return cb.exists(participating);
     }
 
     public Specification<Demand> visibleToCurrentUser() {

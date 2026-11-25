@@ -90,7 +90,12 @@ public class DemandController {
             @RequestParam(required = false) UUID programId,
             @RequestParam(required = false) String requester,
             @RequestParam(required = false) String businessArea,
+            /* The direction is responsible or takes part (Implementação or Interveniente). */
             @RequestParam(required = false) List<String> directionCode,
+            /* Only the demand's responsible direction. */
+            @RequestParam(required = false) List<String> responsibleDirectionCode,
+            /* Only the participating directions (Implementação or Interveniente). */
+            @RequestParam(required = false) List<String> participatingDirectionCode,
             /* The demand's responsible area (areaCode), several values. */
             @RequestParam(required = false) List<String> areaCode,
             @RequestParam(required = false) List<String> domainCode,
@@ -108,7 +113,8 @@ public class DemandController {
         return demands.list(page, size, sort, search, status, type, origin, urgency, nature,
                 committeeId, scoreMin, scoreMax,
                 strategicPlanId, operationalPlanId, strategicPillarId, strategicObjectiveId, programId,
-                requester, businessArea, directionCode, areaCode, domainCode, participatingArea, importCode, createdFrom, createdTo,
+                requester, businessArea, directionCode, responsibleDirectionCode, participatingDirectionCode,
+                areaCode, domainCode, participatingArea, importCode, createdFrom, createdTo,
                 actor(user));
     }
 
